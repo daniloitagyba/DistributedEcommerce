@@ -1,6 +1,6 @@
 # Local Distributed Systems Lab
 
-This repository is a practical distributed systems laboratory running on an Ubuntu server. Milestone 4 adds OpenTelemetry traces and metrics, an OpenTelemetry Collector, Prometheus, Tempo, and provisioned Grafana dashboards to the reliable order flow.
+This repository is a practical distributed systems laboratory running on an Ubuntu server. Milestone 5 adds structured OpenTelemetry logs, Loki, and bidirectional log-to-trace correlation to the reliable order flow.
 
 ## Architecture
 
@@ -14,13 +14,13 @@ Client -> Nginx -> Orders.Api replica 1/2 -> PostgreSQL (order + outbox event)
                                                                                          +-> Kafka orders.created.dlq.v1
 
 Orders.Api + Orders.Worker -> OTLP -> OpenTelemetry Collector -> Prometheus (metrics)
-                                                           |
-                                                           +-> Tempo (traces)
+                                                           |-> Tempo (traces)
+                                                           +-> Loki (logs)
 
-Prometheus + Tempo -> Grafana
+Prometheus + Tempo + Loki -> Grafana
 ```
 
-PostgreSQL, Kafka, Tempo, and the Collector are available only on the internal Compose network. Nginx, Kafka UI, Prometheus, and Grafana bind to server loopback and are accessed through SSH port forwarding.
+PostgreSQL, Kafka, Tempo, Loki, and the Collector are available only on the internal Compose network. Nginx, Kafka UI, Prometheus, and Grafana bind to server loopback and are accessed through SSH port forwarding.
 
 ## Repository layout
 
@@ -29,7 +29,7 @@ PostgreSQL, Kafka, Tempo, and the Collector are available only on the internal C
 - `apps/src/Orders.Worker`: idempotent Kafka consumer, PostgreSQL Inbox, bounded retries, and DLQ publisher.
 - `apps/tests`: unit and PostgreSQL Testcontainers integration tests.
 - `compose`: Compose, Nginx, and environment examples.
-- `observability`: Collector, Prometheus, Tempo, and provisioned Grafana configuration.
+- `observability`: Collector, Prometheus, Tempo, Loki, and provisioned Grafana configuration.
 - `scripts`: repeatable verification scripts.
 - `kubernetes`: reserved for the K3s migration milestone.
 
@@ -106,7 +106,7 @@ ssh \
 - Grafana: `http://127.0.0.1:3000`
 - Prometheus: `http://127.0.0.1:9090`
 
-The provisioned Grafana dashboard is in the `Distributed Systems Lab` folder. Use Explore with the Tempo data source to search traces by `service.name`, span name, duration, or trace ID.
+The provisioned Grafana dashboard is in the `Distributed Systems Lab` folder. Use Explore with Tempo to search traces and Loki to query logs. Trace details link to matching logs, and each correlated Loki log links back to its Tempo trace.
 
 ## API example
 
@@ -121,9 +121,19 @@ The response contains `X-Correlation-ID` and `X-Instance-ID`. Correlation and W3
 
 ## Observability
 
-Applications export OTLP over gRPC to the Collector. The Collector exposes application metrics to Prometheus and sends traces to Tempo. Prometheus and Tempo retain local data for 24 hours. Prometheus storage is additionally capped at 512 MB.
+Applications export traces, metrics, and structured `ILogger` records over OTLP/gRPC to the Collector. The Collector exposes application metrics to Prometheus, sends traces to Tempo, and sends logs to Loki through its native OTLP/HTTP endpoint. Prometheus, Tempo, and Loki retain local data for 24 hours. Prometheus storage is additionally capped at 512 MB.
 
-The default dashboard includes order, processing, Outbox, duplicate, HTTP request-rate, and HTTP latency panels. Metrics preserve `service_name` and `service_instance_id`, allowing both API replicas to be compared.
+Loki indexes only the low-cardinality `service_name` and `deployment_environment_name` resource attributes. Instance IDs, correlation IDs, event IDs, order IDs, trace IDs, and span IDs remain structured metadata. This keeps labels bounded while preserving exact correlation in LogQL and Grafana Explore.
+
+Example LogQL queries:
+
+```logql
+{service_name="orders-worker"}
+{service_name=~"orders-api|orders-worker"} | CorrelationId = "example-001"
+{service_name="orders-worker"} | trace_id = "<trace-id>"
+```
+
+The default dashboard includes order, processing, Outbox, duplicate, HTTP request-rate, HTTP latency, and correlated application-log panels. Metrics preserve `service_name` and `service_instance_id`, allowing both API replicas to be compared.
 
 Inspect Prometheus targets and a business metric from the server:
 
@@ -148,4 +158,4 @@ docker compose exec -T postgres psql --username orders --dbname orders --command
 
 Dead letters are retained for 24 hours in the internal Kafka topic `orders.created.dlq.v1` and can be inspected through Kafka UI.
 
-The next observability milestone can add Loki and structured-log correlation after measuring the current stack's steady-state memory use.
+The next milestone migrates the stateless application workloads to K3s while PostgreSQL, Kafka, and the observability backends remain in Docker Compose.

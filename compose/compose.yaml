@@ -1,7 +1,7 @@
 name: local-distributed-lab
 
 x-api-common: &api-common
-  image: local-distributed-lab/orders-api:milestone-4
+  image: local-distributed-lab/orders-api:milestone-5
   restart: unless-stopped
   environment:
     ASPNETCORE_ENVIRONMENT: Production
@@ -110,7 +110,7 @@ services:
     cpus: 0.50
 
   migrations:
-    image: local-distributed-lab/orders-api:milestone-4
+    image: local-distributed-lab/orders-api:milestone-5
     build:
       context: ..
       dockerfile: apps/src/Orders.Api/Dockerfile
@@ -151,7 +151,7 @@ services:
       InstanceId: orders-api-2
 
   orders-worker:
-    image: local-distributed-lab/orders-worker:milestone-4
+    image: local-distributed-lab/orders-worker:milestone-5
     build:
       context: ..
       dockerfile: apps/src/Orders.Worker/Dockerfile
@@ -231,6 +231,39 @@ services:
     cpus: 0.50
     stop_grace_period: 20s
 
+  loki-init:
+    image: alpine:3.22
+    restart: "no"
+    user: "0:0"
+    command: ["sh", "-c", "chown -R 10001:10001 /var/loki"]
+    volumes:
+      - loki-data:/var/loki
+    networks:
+      - backend
+    mem_limit: 32m
+    cpus: 0.10
+
+  loki:
+    image: grafana/loki:3.6.11
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    depends_on:
+      loki-init:
+        condition: service_completed_successfully
+    volumes:
+      - ../observability/loki/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki-data:/var/loki
+    healthcheck:
+      test: ["CMD", "/usr/bin/loki", "-config.file=/etc/loki/loki.yaml", "-verify-config=true"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - backend
+    mem_limit: 256m
+    cpus: 0.50
+    stop_grace_period: 20s
+
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.157.0
     restart: unless-stopped
@@ -238,6 +271,8 @@ services:
     volumes:
       - ../observability/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
     depends_on:
+      loki:
+        condition: service_healthy
       tempo:
         condition: service_started
     networks:
@@ -294,6 +329,8 @@ services:
         condition: service_started
       tempo:
         condition: service_started
+      loki:
+        condition: service_started
     networks:
       - frontend
       - backend
@@ -309,5 +346,6 @@ volumes:
   postgres-data:
   kafka-data:
   tempo-data:
+  loki-data:
   prometheus-data:
   grafana-data:

@@ -10,6 +10,7 @@ using Orders.Api.Messaging;
 using Orders.Api.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
+var instanceId = builder.Configuration["InstanceId"] ?? Environment.MachineName;
 
 builder.Logging.ClearProviders();
 builder.Logging.AddJsonConsole(options =>
@@ -17,8 +18,8 @@ builder.Logging.AddJsonConsole(options =>
     options.IncludeScopes = true;
     options.UseUtcTimestamp = true;
 });
+builder.Logging.AddOrdersOpenTelemetryLogging("orders-api", instanceId, builder.Environment.EnvironmentName);
 
-var instanceId = builder.Configuration["InstanceId"] ?? Environment.MachineName;
 builder.Services.AddOrdersObservability("orders-api", instanceId, builder.Environment.EnvironmentName);
 
 builder.Services.AddProblemDetails();

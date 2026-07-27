@@ -50,14 +50,42 @@ for order_id in "${order_ids[@]}"; do
   curl --fail --silent --show-error "$orders_url/orders/$order_id" >/dev/null
 done
 
+worker_logged=false
 for attempt in $(seq 1 15); do
   if (cd "$compose_directory" && docker compose logs --no-color orders-worker 2>&1 | grep --quiet --fixed-strings "$last_correlation_id"); then
     printf 'Worker consumed the final event with correlation %s\n' "$last_correlation_id"
-    printf 'Smoke test passed; observed API instances: %s\n' "${!instances[*]}"
-    exit 0
+    worker_logged=true
+    break
   fi
   sleep 1
 done
 
-echo "The worker did not log the final correlation within the timeout." >&2
+if [[ "$worker_logged" != true ]]; then
+  echo "The worker did not log the final correlation within the timeout." >&2
+  exit 1
+fi
+
+loki_query="{service_name=\"orders-worker\"} |= \"$last_correlation_id\""
+for attempt in $(seq 1 15); do
+  if ! loki_response=$(
+    cd "$compose_directory" &&
+      docker compose exec -T grafana curl --fail --silent --get \
+        --data-urlencode "query=$loki_query" \
+        --data-urlencode "limit=20" \
+        http://loki:3100/loki/api/v1/query_range
+  ); then
+    sleep 1
+    continue
+  fi
+
+  if jq --exit-status '.data.result | length > 0' <<<"$loki_response" >/dev/null; then
+    printf 'Loki indexed the final worker log with correlation %s\n' "$last_correlation_id"
+    printf 'Smoke test passed; observed API instances: %s\n' "${!instances[*]}"
+    exit 0
+  fi
+
+  sleep 1
+done
+
+echo "Loki did not index the final correlated worker log within the timeout." >&2
 exit 1

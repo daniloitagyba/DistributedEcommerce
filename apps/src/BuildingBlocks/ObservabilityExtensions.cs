@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -8,6 +10,24 @@ namespace BuildingBlocks;
 
 public static class ObservabilityExtensions
 {
+    public static ILoggingBuilder AddOrdersOpenTelemetryLogging(
+        this ILoggingBuilder logging,
+        string serviceName,
+        string serviceInstanceId,
+        string environmentName)
+    {
+        logging.AddOpenTelemetry(options =>
+        {
+            options.SetResourceBuilder(CreateResourceBuilder(serviceName, serviceInstanceId, environmentName));
+            options.IncludeFormattedMessage = true;
+            options.IncludeScopes = true;
+            options.ParseStateValues = true;
+            options.AddOtlpExporter();
+        });
+
+        return logging;
+    }
+
     public static IServiceCollection AddOrdersObservability(
         this IServiceCollection services,
         string serviceName,
@@ -39,6 +59,19 @@ public static class ObservabilityExtensions
                 .AddOtlpExporter());
 
         return services;
+    }
+
+    private static ResourceBuilder CreateResourceBuilder(
+        string serviceName,
+        string serviceInstanceId,
+        string environmentName)
+    {
+        return ResourceBuilder.CreateDefault()
+            .AddService(serviceName, serviceInstanceId: serviceInstanceId)
+            .AddAttributes(
+            [
+                new KeyValuePair<string, object>("deployment.environment.name", environmentName)
+            ]);
     }
 }
 

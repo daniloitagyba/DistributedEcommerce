@@ -20,6 +20,8 @@ processors:
     send_batch_size: 512
 
 exporters:
+  otlp_http/loki:
+    endpoint: http://loki:3100/otlp
   otlp_grpc/tempo:
     endpoint: tempo:4317
     tls:
@@ -40,6 +42,10 @@ service:
       receivers: [otlp]
       processors: [memory_limiter, batch]
       exporters: [prometheus]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp_http/loki]
   telemetry:
     logs:
       level: info

@@ -6,6 +6,7 @@ using Npgsql;
 using Orders.Worker;
 
 var builder = WebApplication.CreateBuilder(args);
+var instanceId = builder.Configuration["InstanceId"] ?? Environment.MachineName;
 
 builder.Logging.ClearProviders();
 builder.Logging.AddJsonConsole(options =>
@@ -13,8 +14,8 @@ builder.Logging.AddJsonConsole(options =>
     options.IncludeScopes = true;
     options.UseUtcTimestamp = true;
 });
+builder.Logging.AddOrdersOpenTelemetryLogging("orders-worker", instanceId, builder.Environment.EnvironmentName);
 
-var instanceId = builder.Configuration["InstanceId"] ?? Environment.MachineName;
 builder.Services.AddOrdersObservability("orders-worker", instanceId, builder.Environment.EnvironmentName);
 
 builder.Services.AddOptions<KafkaOptions>()

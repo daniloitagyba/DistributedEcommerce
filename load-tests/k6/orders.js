@@ -55,6 +55,43 @@ const profiles = {
     },
     thresholds: commonThresholds,
   },
+  autoscale: {
+    scenarios: {
+      orders: {
+        executor: 'ramping-vus',
+        startVUs: 0,
+        stages: [
+          { duration: '15s', target: 75 },
+          { duration: '60s', target: 75 },
+          { duration: '15s', target: 0 },
+        ],
+        gracefulRampDown: '15s',
+        gracefulStop: '20s',
+      },
+    },
+    thresholds: {
+      ...commonThresholds,
+      'http_req_duration{endpoint:create-order}': ['p(95)<750', 'p(99)<1500'],
+      'http_req_duration{endpoint:get-order}': ['p(95)<500', 'p(99)<1000'],
+    },
+  },
+  resilience: {
+    scenarios: {
+      orders: {
+        executor: 'constant-vus',
+        vus: 5,
+        duration: '75s',
+        gracefulStop: '20s',
+      },
+    },
+    thresholds: {
+      checks: ['rate==1'],
+      http_req_failed: ['rate==0'],
+      order_flow_success: ['rate==1'],
+      'http_req_duration{endpoint:create-order}': ['p(95)<750', 'p(99)<1500'],
+      'http_req_duration{endpoint:get-order}': ['p(95)<500', 'p(99)<1000'],
+    },
+  },
   stress: {
     scenarios: {
       orders: {
@@ -93,7 +130,9 @@ const profiles = {
 };
 
 if (!profiles[profileName]) {
-  throw new Error(`Unsupported PROFILE "${profileName}". Use smoke, baseline, stress, or soak.`);
+  throw new Error(
+    `Unsupported PROFILE "${profileName}". Use smoke, baseline, autoscale, resilience, stress, or soak.`,
+  );
 }
 
 export const options = {

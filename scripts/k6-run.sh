@@ -11,14 +11,25 @@ results_root=${K6_RESULTS_DIRECTORY:-"$project_directory/artifacts/k6"}
 prometheus_url=${PROMETHEUS_URL:-http://127.0.0.1:9090}
 
 case "$profile" in
-  smoke | baseline | stress | soak) ;;
+  smoke | baseline | autoscale | resilience | stress | soak) ;;
   *)
-    printf 'Unsupported profile "%s". Use smoke, baseline, stress, or soak.\n' "$profile" >&2
+    printf \
+      'Unsupported profile "%s". Use smoke, baseline, autoscale, resilience, stress, or soak.\n' \
+      "$profile" >&2
     exit 1
     ;;
 esac
 
-for command_name in curl docker jq k6 kubectl; do
+if [[ -n "${PIPELINE_DRAIN_TIMEOUT_SECONDS:-}" ]]; then
+  pipeline_drain_timeout_seconds=$PIPELINE_DRAIN_TIMEOUT_SECONDS
+elif [[ "$profile" == "autoscale" ]]; then
+  pipeline_drain_timeout_seconds=180
+else
+  pipeline_drain_timeout_seconds=60
+fi
+pipeline_drain_attempts=$((pipeline_drain_timeout_seconds / 2))
+
+for command_name in awk curl docker jq k6 kubectl; do
   command -v "$command_name" >/dev/null
 done
 
@@ -42,9 +53,6 @@ curl --fail --silent --show-error --max-time 5 "$prometheus_url/-/ready" >/dev/n
 run_id=$(date -u +%Y%m%dT%H%M%SZ)
 run_directory="$results_root/$run_id-$profile"
 mkdir -p "$run_directory"
-k6_writable_directory=${K6_WRITABLE_DIRECTORY:-"/home/$(id -un)/snap/k6/common"}
-mkdir -p "$k6_writable_directory"
-temporary_summary_file=$(mktemp "$k6_writable_directory/local-distributed-lab-summary.XXXXXX.json")
 
 query_database_scalar() {
   local query=$1
@@ -57,6 +65,18 @@ query_database_scalar() {
       --tuples-only \
       --no-align \
       --command "$query"
+  )
+}
+
+query_consumer_lag() {
+  (
+    cd "$compose_directory"
+    docker compose exec -T kafka \
+      /opt/kafka/bin/kafka-consumer-groups.sh \
+      --bootstrap-server kafka:9092 \
+      --group orders-worker \
+      --describe |
+      awk '$1 == "orders-worker" { lag += $6 } END { print lag + 0 }'
   )
 }
 
@@ -80,6 +100,20 @@ prometheus_created_delta() {
     '
 }
 
+consumer_lag=0
+for attempt in $(seq 1 60); do
+  consumer_lag=$(query_consumer_lag)
+  if [[ "$consumer_lag" == "0" ]]; then
+    break
+  fi
+  printf 'Waiting for the existing Kafka backlog to drain: lag=%s\n' "$consumer_lag"
+  sleep 2
+done
+if [[ "$consumer_lag" != "0" ]]; then
+  printf 'Kafka consumer lag did not reach zero before the workload: lag=%s\n' "$consumer_lag" >&2
+  exit 1
+fi
+
 orders_before=$(query_database_scalar 'SELECT count(*) FROM orders;')
 inbox_before=$(query_database_scalar "SELECT count(*) FROM inbox_messages WHERE consumer_name = 'orders-worker';")
 capture_prometheus_snapshot "$run_directory/prometheus-before.json"
@@ -99,6 +133,10 @@ jq --null-input \
     k6_version: $k6Version,
     kubernetes_node: $node
   }' >"$run_directory/metadata.json"
+
+k6_writable_directory=${K6_WRITABLE_DIRECTORY:-"/home/$(id -un)/snap/k6/common"}
+mkdir -p "$k6_writable_directory"
+temporary_summary_file=$(mktemp "$k6_writable_directory/local-distributed-lab-summary.XXXXXX.json")
 
 printf 'timestamp,pod,cpu,memory\n' >"$run_directory/resources.csv"
 (
@@ -148,7 +186,7 @@ outbox_pending=$(query_database_scalar 'SELECT count(*) FROM outbox_messages WHE
 inbox_after=$(query_database_scalar "SELECT count(*) FROM inbox_messages WHERE consumer_name = 'orders-worker';")
 orders_created=$((orders_after - orders_before))
 
-for attempt in $(seq 1 30); do
+for attempt in $(seq 1 "$pipeline_drain_attempts"); do
   inbox_after=$(query_database_scalar "SELECT count(*) FROM inbox_messages WHERE consumer_name = 'orders-worker';")
   outbox_pending=$(query_database_scalar 'SELECT count(*) FROM outbox_messages WHERE processed_at IS NULL;')
   inbox_processed=$((inbox_after - inbox_before))
@@ -187,7 +225,9 @@ jq --null-input \
   tee "$run_directory/report.txt"
 
 if (( inbox_processed < orders_created )) || [[ "$outbox_pending" != "0" ]]; then
-  echo "The asynchronous pipeline did not drain within 60 seconds." >&2
+  printf \
+    'The asynchronous pipeline did not drain within %s seconds.\n' \
+    "$pipeline_drain_timeout_seconds" >&2
   exit 1
 fi
 

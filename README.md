@@ -1,6 +1,6 @@
 # Local Distributed Systems Lab
 
-This repository is a practical distributed systems laboratory running on an Ubuntu server. Milestone 7 adds reproducible k6 workload profiles, performance thresholds, resource sampling, a measured capacity baseline, and resource tuning for the K3s application runtime.
+This repository is a practical distributed systems laboratory running on an Ubuntu server. Milestone 8 adds CPU-based Horizontal Pod Autoscaling, controlled rolling-restart experiments, pre-termination request draining, and strict k6 acceptance tests for elasticity and availability.
 
 ## Architecture
 
@@ -37,6 +37,7 @@ PostgreSQL, Kafka, Tempo, Loki, and the Collector have no host ports. Kafka UI, 
 - `apps/tests`: unit and PostgreSQL Testcontainers integration tests.
 - `compose`: external infrastructure and the optional legacy Compose application profile.
 - `docs/performance`: versioned baseline reports and interpretation notes.
+- `docs/resilience`: reviewed autoscaling and controlled-failure reports.
 - `kubernetes/base`: reusable application, migration, health, security, resource, and network-policy manifests.
 - `kubernetes/overlays/local`: the K3s-to-Compose endpoints and local image policy.
 - `load-tests/k6`: versioned workload behavior, profiles, and thresholds.
@@ -99,7 +100,7 @@ scripts/k3s-build-images.sh
 
 The import uses the official K3s image as a short-lived, network-isolated Docker client with access only to the K3s containerd socket. It does not require `sudo`, change the host configuration, or publish an image registry.
 
-Apply the namespace, runtime Secret, bridge endpoints, migration Job, two API replicas, Worker, Service, PodDisruptionBudget, and NetworkPolicies:
+Apply the namespace, runtime Secret, bridge endpoints, migration Job, two minimum API replicas, CPU-based HPA, Worker, Service, PodDisruptionBudget, and NetworkPolicies:
 
 ```bash
 scripts/k3s-deploy.sh
@@ -131,6 +132,8 @@ Available profiles:
 
 - `smoke`: one VU for 10 seconds.
 - `baseline`: ramps to 5 VUs, holds, ramps to 10 VUs, holds, and ramps down over 70 seconds.
+- `autoscale`: ramps to 75 VUs, holds for 60 seconds, and validates HPA scale-up and scale-down.
+- `resilience`: holds 5 VUs for 75 seconds while API and Worker rolling restarts are exercised.
 - `stress`: optional ramp to 30 VUs over 90 seconds.
 - `soak`: optional 5 VUs for 5 minutes.
 
@@ -140,11 +143,17 @@ Run the conservative profiles:
 cd /srv/local-distributed-lab
 scripts/k6-run.sh smoke
 scripts/k6-run.sh baseline
+scripts/hpa-test.sh
+scripts/resilience-test.sh
 ```
 
-The runner verifies Kubernetes readiness, captures PostgreSQL and Prometheus counters, samples pod CPU and memory every two seconds, waits for Inbox/Outbox convergence, and reports per-pod API distribution. Raw output is written under ignored `artifacts/k6/`; the reviewed baseline is documented in `docs/performance/milestone-7-baseline.md`.
+The runner verifies Kubernetes readiness and zero pre-existing Kafka lag, captures PostgreSQL and Prometheus counters, samples pod CPU and memory every two seconds, waits for Inbox/Outbox convergence, and reports per-pod API distribution. The HPA test requires scale-up above two replicas and a return to the minimum. The resilience test performs only rolling restarts, requires zero HTTP failures, and verifies the Worker's graceful-shutdown log in Loki.
 
-Baseline thresholds require fewer than 1% failed HTTP requests, more than 99% successful checks and order flows, create-order p95 below 500 ms, and get-order p95 below 300 ms. Stress and soak profiles are intentionally manual because they consume more resources and create persistent laboratory data.
+The API HPA targets 60% of its CPU request, keeps 2 to 4 replicas, scales up promptly, and uses a conservative 60-second scale-down window. API pods wait five seconds in a `preStop` hook before receiving SIGTERM so terminating endpoints can drain during a rollout.
+
+Raw output is written under ignored `artifacts/k6/`; reviewed results are documented in `docs/performance/milestone-7-baseline.md` and `docs/resilience/milestone-8-autoscaling-resilience.md`.
+
+Baseline and autoscale thresholds require fewer than 1% failed HTTP requests and more than 99% successful checks and order flows. The resilience profile requires exactly zero failed HTTP requests and 100% successful checks and flows. Stress and soak profiles are intentionally manual because they consume more resources and create persistent laboratory data.
 
 ## Access from the Mac
 
@@ -218,4 +227,4 @@ docker compose exec -T postgres psql --username orders --dbname orders --command
 
 Dead letters are retained for 24 hours in the internal Kafka topic `orders.created.dlq.v1` and can be inspected through Kafka UI.
 
-The next milestone adds controlled resilience experiments and Horizontal Pod Autoscaling, using the Milestone 7 workload and resource baseline as the acceptance harness.
+The next milestone can add dependency-failure and recovery drills for PostgreSQL and Kafka, plus actionable Prometheus alerts, while retaining the same non-public access model and conservative resource budget.

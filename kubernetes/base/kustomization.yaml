@@ -5,6 +5,7 @@ resources:
   - namespace.yaml
   - infrastructure-services.yaml
   - orders-api.yaml
+  - orders-api-hpa.yaml
   - orders-worker.yaml
   - migration-job.yaml
   - network-policies.yaml

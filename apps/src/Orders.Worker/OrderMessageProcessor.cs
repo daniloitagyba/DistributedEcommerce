@@ -18,6 +18,8 @@ public sealed class InvalidOrderMessageException(string message, Exception? inne
 
 public sealed class OrderMessageProcessor(
     InboxStore inboxStore,
+    OrderStatusStore orderStatusStore,
+    IOrderCacheInvalidator cacheInvalidator,
     IOptions<KafkaOptions> options,
     ILogger<OrderMessageProcessor> logger)
 {
@@ -72,6 +74,9 @@ public sealed class OrderMessageProcessor(
             WorkerLog.Duplicate(logger, orderCreated.EventId, _options.ConsumerGroup);
             return MessageProcessingResult.Duplicate;
         }
+
+        await orderStatusStore.TryConfirmAsync(orderCreated.OrderId, cancellationToken);
+        await cacheInvalidator.InvalidateAsync(orderCreated.OrderId, cancellationToken);
 
         OrdersTelemetry.RecordProcessed("success");
         WorkerLog.Processed(logger, orderCreated.OrderId, orderCreated.EventId, correlationId);

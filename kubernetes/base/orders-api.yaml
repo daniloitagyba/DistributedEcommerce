@@ -46,6 +46,16 @@ spec:
               value: orders.created.v1
             - name: Kafka__ClientId
               value: orders-api
+            - name: Redis__ConnectionString
+              value: redis:6379
+            - name: Cache__TimeToLiveSeconds
+              value: "30"
+            - name: Cache__LockTimeoutMilliseconds
+              value: "2000"
+            - name: Cache__LockRetryAttempts
+              value: "3"
+            - name: Cache__LockRetryDelayMilliseconds
+              value: "50"
             - name: InstanceId
               valueFrom:
                 fieldRef:

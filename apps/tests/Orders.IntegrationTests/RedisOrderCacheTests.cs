@@ -1,0 +1,64 @@
+using Microsoft.Extensions.Options;
+using Orders.Api.Caching;
+using StackExchange.Redis;
+using Testcontainers.Redis;
+
+namespace Orders.IntegrationTests;
+
+public sealed class RedisOrderCacheTests : IAsyncLifetime
+{
+    private readonly RedisContainer _redis = new RedisBuilder("redis:7.4-alpine").Build();
+    private ConnectionMultiplexer? _connectionMultiplexer;
+
+    public async Task InitializeAsync()
+    {
+        await _redis.StartAsync();
+        _connectionMultiplexer = await ConnectionMultiplexer.ConnectAsync(_redis.GetConnectionString());
+    }
+
+    public async Task DisposeAsync()
+    {
+        if (_connectionMultiplexer is not null)
+        {
+            await _connectionMultiplexer.DisposeAsync();
+        }
+
+        await _redis.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task GetOrCreateAsyncServesSubsequentReadsFromCacheUntilInvalidated()
+    {
+        var cache = new RedisOrderCache(_connectionMultiplexer!, Options.Create(new CacheOptions()));
+        var orderId = Guid.NewGuid();
+        var factoryCalls = 0;
+
+        Task<CachedOrder?> Factory(CancellationToken cancellationToken)
+        {
+            factoryCalls++;
+            return Task.FromResult<CachedOrder?>(new CachedOrder(
+                orderId,
+                "integration-customer",
+                49.90m,
+                "BRL",
+                "Created",
+                DateTimeOffset.UtcNow));
+        }
+
+        var firstLookup = await cache.GetOrCreateAsync(orderId, Factory, CancellationToken.None);
+        var secondLookup = await cache.GetOrCreateAsync(orderId, Factory, CancellationToken.None);
+
+        Assert.Equal(CacheLookupResult.Miss, firstLookup.Result);
+        Assert.Equal(CacheLookupResult.Hit, secondLookup.Result);
+        Assert.Equal(1, factoryCalls);
+        Assert.Equal(firstLookup.Order, secondLookup.Order);
+
+        var database = _connectionMultiplexer!.GetDatabase();
+        await database.KeyDeleteAsync(BuildingBlocks.OrderCacheKeys.Key(orderId));
+
+        var thirdLookup = await cache.GetOrCreateAsync(orderId, Factory, CancellationToken.None);
+
+        Assert.Equal(CacheLookupResult.Miss, thirdLookup.Result);
+        Assert.Equal(2, factoryCalls);
+    }
+}

@@ -1,6 +1,6 @@
 # Local Distributed Systems Lab
 
-This repository is a practical distributed systems laboratory running on an Ubuntu server. Milestone 8 adds CPU-based Horizontal Pod Autoscaling, controlled rolling-restart experiments, pre-termination request draining, and strict k6 acceptance tests for elasticity and availability.
+This repository is a practical distributed systems laboratory running on an Ubuntu server. Milestone 9 adds a Redis cache-aside layer in front of order reads, with cross-service invalidation driven by the Worker.
 
 ## Architecture
 
@@ -11,11 +11,14 @@ Mac client
                                                         |
                                                         +-> PostgreSQL (order + outbox)
                                                         |
+                                                        +-> Redis (order read cache)
+                                                        |
                                                         +-> Kafka orders.created.v1
                                                                   |
                                                                   +-> Orders.Worker pod
                                                                         |
-                                                                        +-> PostgreSQL Inbox
+                                                                        +-> PostgreSQL Inbox + order status
+                                                                        +-> Redis (cache invalidation)
                                                                         +-> Kafka orders.created.dlq.v1
 
 K3s applications -> OTLP -> OpenTelemetry Collector -> Prometheus (metrics)
@@ -25,17 +28,18 @@ K3s applications -> OTLP -> OpenTelemetry Collector -> Prometheus (metrics)
 Prometheus + Tempo + Loki -> Grafana
 ```
 
-K3s reaches the Compose infrastructure through a dedicated internal Docker bridge. Selectorless Kubernetes Services and EndpointSlices provide stable in-cluster names for PostgreSQL, Kafka, and the OpenTelemetry Collector. The bridge is not published on the host.
+K3s reaches the Compose infrastructure through a dedicated internal Docker bridge. Selectorless Kubernetes Services and EndpointSlices provide stable in-cluster names for PostgreSQL, Kafka, Redis, and the OpenTelemetry Collector. The bridge is not published on the host.
 
-PostgreSQL, Kafka, Tempo, Loki, and the Collector have no host ports. Kafka UI, Prometheus, and Grafana bind only to server loopback. The Orders API is exposed temporarily through `kubectl port-forward`, also bound to loopback, and all Mac access uses SSH port forwarding.
+PostgreSQL, Kafka, Redis, Tempo, Loki, and the Collector have no host ports. Kafka UI, Prometheus, and Grafana bind only to server loopback. The Orders API is exposed temporarily through `kubectl port-forward`, also bound to loopback, and all Mac access uses SSH port forwarding.
 
 ## Repository layout
 
-- `apps/src/BuildingBlocks`: event contracts and shared OpenTelemetry instrumentation.
-- `apps/src/Orders.Api`: order API, PostgreSQL persistence, transactional Outbox, migrations, and Kafka producer.
-- `apps/src/Orders.Worker`: idempotent Kafka consumer, PostgreSQL Inbox, bounded retries, and DLQ publisher.
-- `apps/tests`: unit and PostgreSQL Testcontainers integration tests.
+- `apps/src/BuildingBlocks`: event contracts, shared OpenTelemetry instrumentation, and shared Redis wiring.
+- `apps/src/Orders.Api`: order API, PostgreSQL persistence, transactional Outbox, migrations, Kafka producer, and the Redis cache-aside layer.
+- `apps/src/Orders.Worker`: idempotent Kafka consumer, PostgreSQL Inbox, order status transitions, cache invalidation, bounded retries, and DLQ publisher.
+- `apps/tests`: unit tests and PostgreSQL/Redis Testcontainers integration tests.
 - `compose`: external infrastructure and the optional legacy Compose application profile.
+- `docs/caching`: reviewed Redis cache-aside and invalidation reports.
 - `docs/performance`: versioned baseline reports and interpretation notes.
 - `docs/resilience`: reviewed autoscaling and controlled-failure reports.
 - `kubernetes/base`: reusable application, migration, health, security, resource, and network-policy manifests.
@@ -136,6 +140,7 @@ Available profiles:
 - `resilience`: holds 5 VUs for 75 seconds while API and Worker rolling restarts are exercised.
 - `stress`: optional ramp to 30 VUs over 90 seconds.
 - `soak`: optional 5 VUs for 5 minutes.
+- `cache`: seeds a pool of orders, then holds 10 VUs for 30 seconds reading only, to measure cache hit ratio and cached-read latency.
 
 Run the conservative profiles:
 
@@ -227,4 +232,8 @@ docker compose exec -T postgres psql --username orders --dbname orders --command
 
 Dead letters are retained for 24 hours in the internal Kafka topic `orders.created.dlq.v1` and can be inspected through Kafka UI.
 
-The next milestone can add dependency-failure and recovery drills for PostgreSQL and Kafka, plus actionable Prometheus alerts, while retaining the same non-public access model and conservative resource budget.
+## Caching
+
+`GET /orders/{id}` uses cache-aside against Redis: a hit is served directly from `orders:cache:{id}`; a miss takes a short distributed lock (`orders:cache-lock:{id}`) to avoid a stampede, reads PostgreSQL, and repopulates the cache with a 30-second TTL. Responses include an `X-Cache: HIT|MISS` header. After the Worker processes an order's event, it transitions the order to `Confirmed` and deletes the cache entry, so the next read reflects the new status instead of a stale one. Redis has no host port and no authentication, matching the existing Kafka trust model. See `docs/caching/milestone-9-cache.md` for the measured hit ratio and cached-read latency.
+
+The next milestone can add dependency-failure and recovery drills for PostgreSQL, Kafka, and Redis (via Toxiproxy), plus resilience policies (timeouts, retries, circuit breakers) and actionable Prometheus alerts, while retaining the same non-public access model and conservative resource budget.

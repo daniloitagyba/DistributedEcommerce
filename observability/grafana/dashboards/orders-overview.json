@@ -304,6 +304,101 @@
       ],
       "title": "Correlated application logs",
       "type": "logs"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "max": 1,
+          "min": 0,
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 23
+      },
+      "id": 8,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum(orders_cache_hits_total) / (sum(orders_cache_hits_total) + sum(orders_cache_misses_total))",
+          "legendFormat": "hit ratio",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Cache hit ratio",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 23
+      },
+      "id": 9,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum(rate(orders_cache_hits_total[5m]))",
+          "legendFormat": "hits",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "editorMode": "code",
+          "expr": "sum(rate(orders_cache_misses_total[5m]))",
+          "legendFormat": "misses",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Cache hits vs misses",
+      "type": "timeseries"
     }
   ],
   "refresh": "10s",
@@ -325,5 +420,5 @@
   "timezone": "browser",
   "title": "Orders Lab Overview",
   "uid": "orders-lab-overview",
-  "version": 2
+  "version": 3
 }

@@ -37,7 +37,10 @@ var connectionString = builder.Configuration.GetConnectionString("Orders")
     ?? throw new InvalidOperationException("Connection string 'Orders' is required.");
 builder.Services.AddSingleton(NpgsqlDataSource.Create(connectionString));
 builder.Services.AddSingleton<InboxStore>();
+builder.Services.AddSingleton<OrderStatusStore>();
 builder.Services.AddSingleton<OrderMessageProcessor>();
+builder.Services.AddOrdersRedis(builder.Configuration);
+builder.Services.AddSingleton<IOrderCacheInvalidator, RedisOrderCacheInvalidator>();
 
 builder.Services.AddSingleton<IProducer<string, string>>(serviceProvider =>
 {
@@ -64,7 +67,8 @@ builder.Services.AddSingleton<IDeadLetterPublisher, KafkaDeadLetterPublisher>();
 builder.Services.AddHostedService<OrderCreatedConsumer>();
 builder.Services.AddHealthChecks()
     .AddCheck<KafkaHealthCheck>("kafka", tags: ["ready"])
-    .AddCheck<PostgresHealthCheck>("postgres", tags: ["ready"]);
+    .AddCheck<PostgresHealthCheck>("postgres", tags: ["ready"])
+    .AddCheck<RedisHealthCheck>("redis", tags: ["ready"]);
 
 var app = builder.Build();
 

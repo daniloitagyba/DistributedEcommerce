@@ -95,6 +95,24 @@ services:
     cpus: 1.00
     stop_grace_period: 30s
 
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      backend:
+      k3s-bridge:
+        ipv4_address: 172.30.0.13
+    mem_limit: 128m
+    cpus: 0.25
+    stop_grace_period: 10s
+
   kafka-init:
     image: apache/kafka:4.1.1
     restart: "no"

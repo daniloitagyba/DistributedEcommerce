@@ -17,6 +17,8 @@ public static class OrdersTelemetry
     private static readonly Counter<long> InboxDuplicateCounter = Meter.CreateCounter<long>("inbox.messages.duplicates");
     private static readonly Counter<long> ProcessingRetryCounter = Meter.CreateCounter<long>("messaging.processing.retries");
     private static readonly Counter<long> DeadLetterCounter = Meter.CreateCounter<long>("messaging.dead_letters");
+    private static readonly Counter<long> CacheHitCounter = Meter.CreateCounter<long>("orders.cache.hits");
+    private static readonly Counter<long> CacheMissCounter = Meter.CreateCounter<long>("orders.cache.misses");
 
     public static Activity? StartActivity(
         string name,
@@ -66,5 +68,15 @@ public static class OrdersTelemetry
     public static void RecordDeadLetter(string topic)
     {
         DeadLetterCounter.Add(1, new KeyValuePair<string, object?>("messaging.destination.name", topic));
+    }
+
+    public static void RecordCacheHit()
+    {
+        CacheHitCounter.Add(1);
+    }
+
+    public static void RecordCacheMiss()
+    {
+        CacheMissCounter.Add(1);
     }
 }

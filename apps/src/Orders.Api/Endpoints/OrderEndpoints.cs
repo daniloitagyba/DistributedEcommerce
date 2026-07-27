@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using BuildingBlocks;
 using Microsoft.EntityFrameworkCore;
+using Orders.Api.Caching;
 using Orders.Api.Contracts;
 using Orders.Api.Data;
 using Orders.Api.Domain;
@@ -86,24 +87,62 @@ public static class OrderEndpoints
     private static async Task<IResult> GetByIdAsync(
         Guid id,
         OrdersDbContext dbContext,
+        IOrderCache cache,
         IConfiguration configuration,
         HttpContext httpContext,
         CancellationToken cancellationToken)
     {
-        var order = await dbContext.Orders.AsNoTracking().SingleOrDefaultAsync(item => item.Id == id, cancellationToken);
-        if (order is null)
+        var lookup = await cache.GetOrCreateAsync(
+            id,
+            async token =>
+            {
+                var order = await dbContext.Orders.AsNoTracking().SingleOrDefaultAsync(item => item.Id == id, token);
+                return order is null ? null : ToCachedOrder(order);
+            },
+            cancellationToken);
+
+        if (lookup.Order is null)
         {
             return Results.NotFound();
         }
 
+        httpContext.Response.Headers["X-Cache"] = lookup.Result == CacheLookupResult.Hit ? "HIT" : "MISS";
+
         return Results.Ok(ToResponse(
-            order,
+            lookup.Order,
             httpContext.GetCorrelationId(),
             configuration["InstanceId"] ?? Environment.MachineName));
     }
 
+    private static CachedOrder ToCachedOrder(Order order)
+    {
+        return new CachedOrder(
+            order.Id,
+            order.CustomerId,
+            order.Amount,
+            order.Currency,
+            order.Status,
+            order.CreatedAt);
+    }
+
     private static OrderResponse ToResponse(
         Order order,
+        string correlationId,
+        string instanceId)
+    {
+        return new OrderResponse(
+            order.Id,
+            order.CustomerId,
+            order.Amount,
+            order.Currency,
+            order.Status,
+            order.CreatedAt,
+            correlationId,
+            instanceId);
+    }
+
+    private static OrderResponse ToResponse(
+        CachedOrder order,
         string correlationId,
         string instanceId)
     {

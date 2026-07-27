@@ -127,11 +127,27 @@ const profiles = {
     },
     thresholds: commonThresholds,
   },
+  cache: {
+    scenarios: {
+      orders: {
+        executor: 'constant-vus',
+        vus: 10,
+        duration: '30s',
+        gracefulStop: '10s',
+      },
+    },
+    thresholds: {
+      checks: ['rate>0.99'],
+      http_req_failed: ['rate<0.01'],
+      cache_hit_rate: ['rate>0.90'],
+      'http_req_duration{endpoint:get-order-cached}': ['p(95)<100', 'p(99)<250'],
+    },
+  },
 };
 
 if (!profiles[profileName]) {
   throw new Error(
-    `Unsupported PROFILE "${profileName}". Use smoke, baseline, autoscale, resilience, stress, or soak.`,
+    `Unsupported PROFILE "${profileName}". Use smoke, baseline, autoscale, resilience, stress, soak, or cache.`,
   );
 }
 
@@ -148,8 +164,78 @@ export const options = {
 const createdOrders = new Counter('orders_created');
 const instanceRequests = new Counter('api_instance_requests');
 const successfulFlows = new Rate('order_flow_success');
+const cacheHitRate = new Rate('cache_hit_rate');
 
-export default function () {
+const CACHE_SEED_POOL_SIZE = 15;
+
+export function setup() {
+  if (profileName !== 'cache') {
+    return {};
+  }
+
+  const orderIds = [];
+  for (let index = 0; index < CACHE_SEED_POOL_SIZE; index += 1) {
+    const payload = JSON.stringify({
+      customerId: `cache-seed-customer-${index}`,
+      amount: 19.9,
+      currency: 'BRL',
+    });
+    const response = http.post(`${baseUrl}/orders`, payload, {
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Correlation-ID': `k6-cache-seed-${runId}-${index}`,
+      },
+      timeout: '5s',
+    });
+    if (response.status === 201) {
+      const id = response.json('id');
+      if (id) {
+        orderIds.push(id);
+      }
+    }
+  }
+
+  // Give the Worker time to process the seed orders (and invalidate any
+  // not-yet-populated cache entries) before the cached-read workload starts.
+  sleep(2);
+  return { orderIds };
+}
+
+export default function (data) {
+  if (profileName === 'cache') {
+    cacheWorkload(data);
+    return;
+  }
+
+  ordersWorkload();
+}
+
+function cacheWorkload(data) {
+  const orderIds = (data && data.orderIds) || [];
+  if (orderIds.length === 0) {
+    sleep(1);
+    return;
+  }
+
+  const orderId = orderIds[Math.floor(Math.random() * orderIds.length)];
+  const response = http.get(`${baseUrl}/orders/${orderId}`, {
+    tags: {
+      endpoint: 'get-order-cached',
+      name: 'GET /orders/:id (cached)',
+    },
+    timeout: '5s',
+  });
+
+  const succeeded = check(response, {
+    'cached order read returns 200': (res) => res.status === 200,
+  });
+
+  cacheHitRate.add(response.headers['X-Cache'] === 'HIT');
+  successfulFlows.add(succeeded);
+  sleep(0.2 + Math.random() * 0.2);
+}
+
+function ordersWorkload() {
   const iterationId = `${runId}-${exec.vu.idInTest}-${exec.scenario.iterationInTest}`;
   const correlationId = `k6-${iterationId}`;
   const payload = JSON.stringify({

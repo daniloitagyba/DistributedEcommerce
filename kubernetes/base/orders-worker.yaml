@@ -47,6 +47,8 @@ spec:
               value: orders-worker
             - name: Kafka__ClientId
               value: orders-worker-k3s
+            - name: Redis__ConnectionString
+              value: redis:6379
             - name: InstanceId
               valueFrom:
                 fieldRef:

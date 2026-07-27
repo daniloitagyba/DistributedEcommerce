@@ -1,0 +1,313 @@
+name: local-distributed-lab
+
+x-api-common: &api-common
+  image: local-distributed-lab/orders-api:milestone-4
+  restart: unless-stopped
+  environment:
+    ASPNETCORE_ENVIRONMENT: Production
+    ConnectionStrings__Orders: Host=postgres;Port=5432;Database=orders;Username=orders;Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    Kafka__BootstrapServers: kafka:9092
+    Kafka__OrderCreatedTopic: orders.created.v1
+    Kafka__ClientId: orders-api
+  depends_on:
+    migrations:
+      condition: service_completed_successfully
+    kafka-init:
+      condition: service_completed_successfully
+  networks:
+    - frontend
+    - backend
+  mem_limit: 256m
+  cpus: 0.50
+  stop_grace_period: 20s
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: orders
+      POSTGRES_USER: orders
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    command:
+      - postgres
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - effective_cache_size=256MB
+      - -c
+      - work_mem=4MB
+      - -c
+      - max_connections=50
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --username=orders --dbname=orders"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - backend
+    mem_limit: 512m
+    cpus: 0.75
+    stop_grace_period: 30s
+
+  kafka:
+    image: apache/kafka:4.1.1
+    restart: unless-stopped
+    environment:
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_RETENTION_HOURS: 24
+      KAFKA_LOG_SEGMENT_BYTES: 134217728
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_HEAP_OPTS: -Xms512m -Xmx512m
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/9092'"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+    networks:
+      - backend
+    mem_limit: 768m
+    cpus: 1.00
+    stop_grace_period: 30s
+
+  kafka-init:
+    image: apache/kafka:4.1.1
+    restart: "no"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_HEAP_OPTS: -Xms128m -Xmx128m
+    command:
+      - /bin/bash
+      - -ec
+      - |
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic orders.created.v1 --partitions 3 --replication-factor 1 --config retention.ms=86400000
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic orders.created.dlq.v1 --partitions 1 --replication-factor 1 --config retention.ms=86400000
+    networks:
+      - backend
+    mem_limit: 256m
+    cpus: 0.50
+
+  migrations:
+    image: local-distributed-lab/orders-api:milestone-4
+    build:
+      context: ..
+      dockerfile: apps/src/Orders.Api/Dockerfile
+    restart: "no"
+    command: ["--migrate"]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Orders: Host=postgres;Port=5432;Database=orders;Username=orders;Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      Kafka__BootstrapServers: kafka:9092
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["NONE"]
+    networks:
+      - backend
+    mem_limit: 256m
+    cpus: 0.50
+
+  orders-api-1:
+    <<: *api-common
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Orders: Host=postgres;Port=5432;Database=orders;Username=orders;Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      Kafka__BootstrapServers: kafka:9092
+      Kafka__OrderCreatedTopic: orders.created.v1
+      Kafka__ClientId: orders-api
+      InstanceId: orders-api-1
+
+  orders-api-2:
+    <<: *api-common
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Orders: Host=postgres;Port=5432;Database=orders;Username=orders;Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      Kafka__BootstrapServers: kafka:9092
+      Kafka__OrderCreatedTopic: orders.created.v1
+      Kafka__ClientId: orders-api
+      InstanceId: orders-api-2
+
+  orders-worker:
+    image: local-distributed-lab/orders-worker:milestone-4
+    build:
+      context: ..
+      dockerfile: apps/src/Orders.Worker/Dockerfile
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Orders: Host=postgres;Port=5432;Database=orders;Username=orders;Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      Kafka__BootstrapServers: kafka:9092
+      Kafka__OrderCreatedTopic: orders.created.v1
+      Kafka__DeadLetterTopic: orders.created.dlq.v1
+      Kafka__ConsumerGroup: orders-worker
+      Kafka__ClientId: orders-worker-1
+      InstanceId: orders-worker-1
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      migrations:
+        condition: service_completed_successfully
+    networks:
+      - backend
+    mem_limit: 256m
+    cpus: 0.50
+    stop_grace_period: 30s
+
+  nginx:
+    image: nginx:1.28-alpine
+    restart: unless-stopped
+    ports:
+      - "${LAB_BIND_ADDRESS:-127.0.0.1}:${ORDERS_PORT:-8088}:8080"
+    volumes:
+      - ./nginx/orders.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      orders-api-1:
+        condition: service_healthy
+      orders-api-2:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --output-document=- http://127.0.0.1:8080/nginx-health >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - frontend
+    mem_limit: 64m
+    cpus: 0.25
+    stop_grace_period: 10s
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    restart: unless-stopped
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      JAVA_OPTS: -Xms128m -Xmx192m
+    ports:
+      - "127.0.0.1:${KAFKA_UI_PORT:-8080}:8080"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - frontend
+      - backend
+    mem_limit: 256m
+    cpus: 0.50
+
+
+  tempo:
+    image: grafana/tempo:2.10.5
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ../observability/tempo/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    networks:
+      - backend
+    mem_limit: 256m
+    cpus: 0.50
+    stop_grace_period: 20s
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.157.0
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ../observability/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    depends_on:
+      tempo:
+        condition: service_started
+    networks:
+      - backend
+    mem_limit: 192m
+    cpus: 0.50
+    stop_grace_period: 20s
+
+  prometheus:
+    image: prom/prometheus:v3.13.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=24h
+      - --storage.tsdb.retention.size=512MB
+      - --web.enable-lifecycle
+    volumes:
+      - ../observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+    depends_on:
+      otel-collector:
+        condition: service_started
+    networks:
+      - frontend
+      - backend
+    mem_limit: 256m
+    cpus: 0.50
+    stop_grace_period: 20s
+
+  grafana:
+    image: grafana/grafana:13.1.1
+    restart: unless-stopped
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_AUTH_BASIC_ENABLED: "false"
+      GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ../observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      prometheus:
+        condition: service_started
+      tempo:
+        condition: service_started
+    networks:
+      - frontend
+      - backend
+    mem_limit: 256m
+    cpus: 0.50
+    stop_grace_period: 20s
+networks:
+  frontend:
+  backend:
+    internal: true
+
+volumes:
+  postgres-data:
+  kafka-data:
+  tempo-data:
+  prometheus-data:
+  grafana-data:

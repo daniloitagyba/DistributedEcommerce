@@ -1,0 +1,13 @@
+.DS_Store
+.idea/
+.vscode/
+**/bin/
+**/obj/
+**/TestResults/
+compose/.env
+data/postgres/
+data/kafka/
+data/observability/
+*.user
+*.suo
+*.log

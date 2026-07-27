@@ -1,0 +1,11 @@
+.git
+.gitignore
+.idea
+.vscode
+**/bin
+**/obj
+**/TestResults
+compose/.env
+data
+kubernetes
+observability

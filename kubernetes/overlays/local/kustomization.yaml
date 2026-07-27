@@ -6,9 +6,9 @@ resources:
   - connectivity-job.yaml
 images:
   - name: local-distributed-lab/orders-api
-    newTag: milestone-6
+    newTag: milestone-7
   - name: local-distributed-lab/orders-worker
-    newTag: milestone-6
+    newTag: milestone-7
 patches:
   - target:
       kind: Deployment
@@ -26,7 +26,7 @@ patches:
         value: Never
   - target:
       kind: Job
-      name: orders-migrations-m6
+      name: orders-migrations-m7
     patch: |-
       - op: replace
         path: /spec/template/spec/containers/0/imagePullPolicy

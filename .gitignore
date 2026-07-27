@@ -11,3 +11,4 @@ data/observability/
 *.user
 *.suo
 *.log
+artifacts/

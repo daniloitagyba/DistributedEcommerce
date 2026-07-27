@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: orders-migrations-m6
+  name: orders-migrations-m7
   labels:
     app.kubernetes.io/name: orders-migrations
     app.kubernetes.io/component: migration

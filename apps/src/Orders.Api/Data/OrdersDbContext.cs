@@ -69,8 +69,7 @@ public sealed class OrdersDbContext(DbContextOptions<OrdersDbContext> options) :
         inbox.Property(item => item.CorrelationId).HasColumnName("correlation_id").HasMaxLength(128).IsRequired();
         inbox.Property(item => item.ProcessedAt).HasColumnName("processed_at").IsRequired();
         inbox.HasIndex(item => new { item.ConsumerName, item.Topic, item.Partition, item.Offset })
-            .IsUnique()
-            .HasDatabaseName("ux_inbox_messages_source_position");
+            .HasDatabaseName("ix_inbox_messages_source_position");
         inbox.HasIndex(item => item.ProcessedAt)
             .HasDatabaseName("ix_inbox_messages_processed_at");
     }

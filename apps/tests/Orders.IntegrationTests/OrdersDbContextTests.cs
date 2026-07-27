@@ -73,7 +73,7 @@ public sealed class OrdersDbContextTests : IAsyncLifetime
             "integration-correlation",
             DateTimeOffset.UtcNow,
             CancellationToken.None);
-        var duplicatePositionProcessing = await inboxStore.TryRecordAsync(
+        var reusedPositionProcessing = await inboxStore.TryRecordAsync(
             "orders-worker",
             Guid.NewGuid(),
             "orders.created.v1",
@@ -103,6 +103,9 @@ public sealed class OrdersDbContextTests : IAsyncLifetime
             .AsNoTracking()
             .Where(message => message.EventId == eventId)
             .ToListAsync(CancellationToken.None);
+        var totalInboxEntries = await readContext.InboxMessages
+            .AsNoTracking()
+            .CountAsync(CancellationToken.None);
 
         Assert.Equal(expected.CustomerId, actual.CustomerId);
         Assert.Equal(expected.Amount, actual.Amount);
@@ -113,8 +116,9 @@ public sealed class OrdersDbContextTests : IAsyncLifetime
         Assert.Null(actualMessage.ProcessedAt);
         Assert.True(firstProcessing);
         Assert.False(duplicateProcessing);
-        Assert.False(duplicatePositionProcessing);
+        Assert.True(reusedPositionProcessing);
         Assert.True(differentConsumerProcessing);
         Assert.Equal(2, inboxEntries.Count);
+        Assert.Equal(3, totalInboxEntries);
     }
 }

@@ -42,7 +42,7 @@ kubectl wait \
 kubectl wait \
   --namespace "$namespace" \
   --for=condition=complete \
-  job/orders-migrations-m6 \
+  job/orders-migrations-m7 \
   --timeout=180s
 kubectl rollout status \
   --namespace "$namespace" \

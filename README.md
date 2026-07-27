@@ -1,6 +1,6 @@
 # Local Distributed Systems Lab
 
-This repository is a practical distributed systems laboratory running on an Ubuntu server. Milestone 6 migrates the stateless Orders API and Worker workloads to K3s while PostgreSQL, Kafka, Kafka UI, and the observability stack remain in Docker Compose.
+This repository is a practical distributed systems laboratory running on an Ubuntu server. Milestone 7 adds reproducible k6 workload profiles, performance thresholds, resource sampling, a measured capacity baseline, and resource tuning for the K3s application runtime.
 
 ## Architecture
 
@@ -36,8 +36,10 @@ PostgreSQL, Kafka, Tempo, Loki, and the Collector have no host ports. Kafka UI, 
 - `apps/src/Orders.Worker`: idempotent Kafka consumer, PostgreSQL Inbox, bounded retries, and DLQ publisher.
 - `apps/tests`: unit and PostgreSQL Testcontainers integration tests.
 - `compose`: external infrastructure and the optional legacy Compose application profile.
+- `docs/performance`: versioned baseline reports and interpretation notes.
 - `kubernetes/base`: reusable application, migration, health, security, resource, and network-policy manifests.
 - `kubernetes/overlays/local`: the K3s-to-Compose endpoints and local image policy.
+- `load-tests/k6`: versioned workload behavior, profiles, and thresholds.
 - `observability`: Collector, Prometheus, Tempo, Loki, and provisioned Grafana configuration.
 - `scripts`: repeatable image, deployment, access, and verification workflows.
 
@@ -66,7 +68,7 @@ dotnet build LocalDistributedLab.slnx --no-restore
 dotnet test LocalDistributedLab.slnx --no-build
 ```
 
-The integration test starts a disposable PostgreSQL 17 container, applies the real EF Core migrations, and verifies Inbox deduplication by both event identity and Kafka source position.
+The integration test starts a disposable PostgreSQL 17 container, applies the real EF Core migrations, and verifies Inbox deduplication by stable event identity even when a recreated Kafka topic reuses an earlier source position.
 
 ## Start the external infrastructure
 
@@ -120,6 +122,29 @@ scripts/k3s-smoke-test.sh
 ```
 
 The test verifies two Ready API replicas, order creation and retrieval, Worker consumption, correlation propagation, and Loki ingestion. A service port-forward selects one backend pod, so replica readiness is validated independently through the Deployment status and Kubernetes health probes.
+
+## Performance testing
+
+The k6 workload runs on the Ubuntu server directly against the Orders API ClusterIP. This exercises the real Kubernetes Service and both API replicas without publishing a port or measuring SSH tunnel overhead.
+
+Available profiles:
+
+- `smoke`: one VU for 10 seconds.
+- `baseline`: ramps to 5 VUs, holds, ramps to 10 VUs, holds, and ramps down over 70 seconds.
+- `stress`: optional ramp to 30 VUs over 90 seconds.
+- `soak`: optional 5 VUs for 5 minutes.
+
+Run the conservative profiles:
+
+```bash
+cd /srv/local-distributed-lab
+scripts/k6-run.sh smoke
+scripts/k6-run.sh baseline
+```
+
+The runner verifies Kubernetes readiness, captures PostgreSQL and Prometheus counters, samples pod CPU and memory every two seconds, waits for Inbox/Outbox convergence, and reports per-pod API distribution. Raw output is written under ignored `artifacts/k6/`; the reviewed baseline is documented in `docs/performance/milestone-7-baseline.md`.
+
+Baseline thresholds require fewer than 1% failed HTTP requests, more than 99% successful checks and order flows, create-order p95 below 500 ms, and get-order p95 below 300 ms. Stress and soak profiles are intentionally manual because they consume more resources and create persistent laboratory data.
 
 ## Access from the Mac
 
@@ -181,7 +206,7 @@ The provisioned Grafana dashboard is in the `Distributed Systems Lab` folder. Tr
 
 The API writes the order and its `OrderCreated` Outbox message in the same PostgreSQL transaction. Two API replicas safely poll pending messages with `FOR UPDATE SKIP LOCKED`. Failed Kafka publishes remain durable and use capped exponential backoff.
 
-Kafka delivery remains at least once. Before committing an offset, the Worker records both event identity and source position in the PostgreSQL Inbox. Replayed events and reused source positions are skipped safely. Processing failures are retried three times and then published to `orders.created.dlq.v1`; PostgreSQL or DLQ publication failures leave the source offset uncommitted.
+Kafka delivery remains at least once. Before committing an offset, the Worker deduplicates by `(consumer_name, event_id)` in the PostgreSQL Inbox. Topic, partition, and offset are retained in a non-unique diagnostic index, so a local Kafka topic can be recreated without causing a new event at a reused offset to be discarded. Processing failures are retried three times and then published to `orders.created.dlq.v1`; PostgreSQL or DLQ publication failures leave the source offset uncommitted.
 
 Inspect Outbox and Inbox state without publishing PostgreSQL:
 
@@ -193,4 +218,4 @@ docker compose exec -T postgres psql --username orders --dbname orders --command
 
 Dead letters are retained for 24 hours in the internal Kafka topic `orders.created.dlq.v1` and can be inspected through Kafka UI.
 
-The next milestone adds reproducible k6 workload profiles, performance thresholds, capacity baselines, and resource tuning for the K3s application runtime.
+The next milestone adds controlled resilience experiments and Horizontal Pod Autoscaling, using the Milestone 7 workload and resource baseline as the acceptance harness.

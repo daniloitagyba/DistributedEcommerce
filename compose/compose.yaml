@@ -1,7 +1,7 @@
 name: local-distributed-lab
 
 x-api-common: &api-common
-  image: local-distributed-lab/orders-api:milestone-6
+  image: local-distributed-lab/orders-api:milestone-7
   profiles: ["compose-apps"]
   restart: unless-stopped
   environment:
@@ -116,7 +116,7 @@ services:
 
   migrations:
     profiles: ["compose-apps"]
-    image: local-distributed-lab/orders-api:milestone-6
+    image: local-distributed-lab/orders-api:milestone-7
     build:
       context: ..
       dockerfile: apps/src/Orders.Api/Dockerfile
@@ -158,7 +158,7 @@ services:
 
   orders-worker:
     profiles: ["compose-apps"]
-    image: local-distributed-lab/orders-worker:milestone-6
+    image: local-distributed-lab/orders-worker:milestone-7
     build:
       context: ..
       dockerfile: apps/src/Orders.Worker/Dockerfile

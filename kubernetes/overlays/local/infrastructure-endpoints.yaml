@@ -1,0 +1,50 @@
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: postgres-compose
+  labels:
+    kubernetes.io/service-name: postgres
+    endpointslice.kubernetes.io/managed-by: local-distributed-lab
+addressType: IPv4
+ports:
+  - name: postgres
+    protocol: TCP
+    port: 5432
+endpoints:
+  - addresses: ["172.30.0.10"]
+    conditions:
+      ready: true
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: kafka-compose
+  labels:
+    kubernetes.io/service-name: kafka
+    endpointslice.kubernetes.io/managed-by: local-distributed-lab
+addressType: IPv4
+ports:
+  - name: kafka
+    protocol: TCP
+    port: 9092
+endpoints:
+  - addresses: ["172.30.0.11"]
+    conditions:
+      ready: true
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: otel-collector-compose
+  labels:
+    kubernetes.io/service-name: otel-collector
+    endpointslice.kubernetes.io/managed-by: local-distributed-lab
+addressType: IPv4
+ports:
+  - name: otlp-grpc
+    protocol: TCP
+    port: 4317
+endpoints:
+  - addresses: ["172.30.0.12"]
+    conditions:
+      ready: true

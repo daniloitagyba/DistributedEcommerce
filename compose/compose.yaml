@@ -1,7 +1,8 @@
 name: local-distributed-lab
 
 x-api-common: &api-common
-  image: local-distributed-lab/orders-api:milestone-5
+  image: local-distributed-lab/orders-api:milestone-6
+  profiles: ["compose-apps"]
   restart: unless-stopped
   environment:
     ASPNETCORE_ENVIRONMENT: Production
@@ -49,7 +50,9 @@ services:
       retries: 10
       start_period: 10s
     networks:
-      - backend
+      backend:
+      k3s-bridge:
+        ipv4_address: 172.30.0.10
     mem_limit: 512m
     cpus: 0.75
     stop_grace_period: 30s
@@ -85,7 +88,9 @@ services:
       retries: 20
       start_period: 20s
     networks:
-      - backend
+      backend:
+      k3s-bridge:
+        ipv4_address: 172.30.0.11
     mem_limit: 768m
     cpus: 1.00
     stop_grace_period: 30s
@@ -110,7 +115,8 @@ services:
     cpus: 0.50
 
   migrations:
-    image: local-distributed-lab/orders-api:milestone-5
+    profiles: ["compose-apps"]
+    image: local-distributed-lab/orders-api:milestone-6
     build:
       context: ..
       dockerfile: apps/src/Orders.Api/Dockerfile
@@ -151,7 +157,8 @@ services:
       InstanceId: orders-api-2
 
   orders-worker:
-    image: local-distributed-lab/orders-worker:milestone-5
+    profiles: ["compose-apps"]
+    image: local-distributed-lab/orders-worker:milestone-6
     build:
       context: ..
       dockerfile: apps/src/Orders.Worker/Dockerfile
@@ -177,6 +184,7 @@ services:
     stop_grace_period: 30s
 
   nginx:
+    profiles: ["compose-apps"]
     image: nginx:1.28-alpine
     restart: unless-stopped
     ports:
@@ -276,7 +284,9 @@ services:
       tempo:
         condition: service_started
     networks:
-      - backend
+      backend:
+      k3s-bridge:
+        ipv4_address: 172.30.0.12
     mem_limit: 192m
     cpus: 0.50
     stop_grace_period: 20s
@@ -341,6 +351,12 @@ networks:
   frontend:
   backend:
     internal: true
+  k3s-bridge:
+    name: local-distributed-lab-k3s-bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
 
 volumes:
   postgres-data:

@@ -10,7 +10,7 @@ public sealed class InboxStore(NpgsqlDataSource dataSource)
             (consumer_name, event_id, topic, partition, "offset", correlation_id, processed_at)
         VALUES
             (@consumer_name, @event_id, @topic, @partition, @offset, @correlation_id, @processed_at)
-        ON CONFLICT (consumer_name, event_id) DO NOTHING;
+        ON CONFLICT DO NOTHING;
         """;
 
     public async Task<bool> TryRecordAsync(

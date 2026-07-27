@@ -5,6 +5,9 @@ script_directory=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 project_directory=$(cd -- "$script_directory/.." && pwd)
 compose_directory="$project_directory/compose"
 orders_url=${ORDERS_URL:-http://127.0.0.1:8088}
+worker_runtime=${WORKER_RUNTIME:-compose}
+kubernetes_namespace=${KUBERNETES_NAMESPACE:-orders-lab}
+expected_api_instances=${EXPECTED_API_INSTANCES:-2}
 run_id=$(date -u +%Y%m%dT%H%M%SZ)
 temporary_directory=$(mktemp -d)
 trap 'rm -rf -- "$temporary_directory"' EXIT
@@ -12,6 +15,14 @@ trap 'rm -rf -- "$temporary_directory"' EXIT
 declare -A instances=()
 declare -a order_ids=()
 last_correlation_id=""
+
+worker_logs() {
+  if [[ "$worker_runtime" == "kubernetes" ]]; then
+    kubectl logs --namespace "$kubernetes_namespace" deployment/orders-worker --since=5m
+  else
+    (cd "$compose_directory" && docker compose --profile compose-apps logs --no-color orders-worker)
+  fi
+}
 
 for index in $(seq 1 6); do
   correlation_id="smoke-$run_id-$index"
@@ -41,8 +52,8 @@ for index in $(seq 1 6); do
   printf 'Created order %s through %s with correlation %s\n' "$order_id" "$instance_id" "$correlation_id"
 done
 
-if (( ${#instances[@]} < 2 )); then
-  echo "Expected both API replicas to serve requests." >&2
+if (( ${#instances[@]} < expected_api_instances )); then
+  printf 'Expected at least %s API instance(s) to serve requests.\n' "$expected_api_instances" >&2
   exit 1
 fi
 
@@ -52,7 +63,7 @@ done
 
 worker_logged=false
 for attempt in $(seq 1 15); do
-  if (cd "$compose_directory" && docker compose logs --no-color orders-worker 2>&1 | grep --quiet --fixed-strings "$last_correlation_id"); then
+  if worker_logs 2>&1 | grep --quiet --fixed-strings "$last_correlation_id"; then
     printf 'Worker consumed the final event with correlation %s\n' "$last_correlation_id"
     worker_logged=true
     break

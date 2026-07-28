@@ -47,6 +47,14 @@ builder.Services.AddOptions<OrderProjectionOptions>()
     .Validate(options => !string.IsNullOrWhiteSpace(options.DeadLetterTopic), "Kafka dead-letter topic is required.")
     .Validate(options => !string.IsNullOrWhiteSpace(options.ConsumerGroup), "Kafka consumer group is required.")
     .ValidateOnStart();
+builder.Services.AddOptions<SagaOrchestrationOptions>()
+    .Bind(builder.Configuration.GetSection(SagaOrchestrationOptions.SectionName))
+    .Validate(options => !string.IsNullOrWhiteSpace(options.BootstrapServers), "Kafka bootstrap servers are required.")
+    .Validate(options => !string.IsNullOrWhiteSpace(options.OrderCreatedTopic), "Order-created topic is required.")
+    .Validate(options => !string.IsNullOrWhiteSpace(options.DecisionRequestedTopic), "Decision-requested topic is required.")
+    .Validate(options => !string.IsNullOrWhiteSpace(options.DecisionRepliedTopic), "Decision-replied topic is required.")
+    .Validate(options => options.TimeoutSeconds > 0, "Saga timeout must be positive.")
+    .ValidateOnStart();
 
 var connectionString = builder.Configuration.GetConnectionString("Orders")
     ?? throw new InvalidOperationException("Connection string 'Orders' is required.");
@@ -89,6 +97,11 @@ builder.Services.AddSingleton<IOrderProjectionDeadLetterPublisher, OrderProjecti
 builder.Services.AddHostedService<OrderCreatedConsumer>();
 builder.Services.AddHostedService<PaymentResultConsumer>();
 builder.Services.AddHostedService<OrderProjectionConsumer>();
+
+builder.Services.AddSingleton<SagaOrchestrationTracker>();
+builder.Services.AddHostedService<OrderSagaOrchestrator>();
+builder.Services.AddHostedService<OrderSagaReplyConsumer>();
+builder.Services.AddHostedService<SagaTimeoutSweeper>();
 builder.Services.AddHealthChecks()
     .AddCheck<KafkaHealthCheck>("kafka", tags: ["ready"])
     .AddCheck<PostgresHealthCheck>("postgres", tags: ["ready"])

@@ -162,6 +162,8 @@ services:
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic debezium-connect-offsets --partitions 5 --replication-factor 1 --config cleanup.policy=compact
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic debezium-connect-status --partitions 1 --replication-factor 1 --config cleanup.policy=compact
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic orders-cdc.public.outbox_messages --partitions 3 --replication-factor 1 --config retention.ms=86400000
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic payments.decision-requested.v1 --partitions 3 --replication-factor 1 --config retention.ms=86400000
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic payments.decision-replied.v1 --partitions 3 --replication-factor 1 --config retention.ms=86400000
     networks:
       - backend
     mem_limit: 256m

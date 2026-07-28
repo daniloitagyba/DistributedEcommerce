@@ -47,6 +47,12 @@ builder.Services.AddOptions<PaymentDecisionOptions>()
     .Bind(builder.Configuration.GetSection(PaymentDecisionOptions.SectionName))
     .Validate(options => options.DeclineAmountThreshold > 0, "Decline amount threshold must be positive.")
     .ValidateOnStart();
+builder.Services.AddOptions<PaymentDecisionRequestOptions>()
+    .Bind(builder.Configuration.GetSection(PaymentDecisionRequestOptions.SectionName))
+    .Validate(options => !string.IsNullOrWhiteSpace(options.BootstrapServers), "Kafka bootstrap servers are required.")
+    .Validate(options => !string.IsNullOrWhiteSpace(options.DecisionRequestedTopic), "Decision-requested topic is required.")
+    .Validate(options => !string.IsNullOrWhiteSpace(options.DecisionRepliedTopic), "Decision-replied topic is required.")
+    .ValidateOnStart();
 
 var connectionString = builder.Configuration.GetConnectionString("Payments")
     ?? throw new InvalidOperationException("Connection string 'Payments' is required.");
@@ -81,6 +87,7 @@ builder.Services.AddSingleton<IDeadLetterPublisher, KafkaDeadLetterPublisher>();
 builder.Services.AddSingleton<PaymentMessageProcessor>();
 builder.Services.AddHostedService<OutboxPublisher>();
 builder.Services.AddHostedService<OrderCreatedConsumer>();
+builder.Services.AddHostedService<PaymentDecisionRequestHandler>();
 builder.Services.AddHealthChecks()
     .AddCheck<PostgresHealthCheck>("postgres", tags: ["ready"])
     .AddCheck<KafkaHealthCheck>("kafka", tags: ["ready"]);

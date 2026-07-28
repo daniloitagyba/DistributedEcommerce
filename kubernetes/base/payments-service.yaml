@@ -49,6 +49,8 @@ spec:
               value: payments-service
             - name: Kafka__ClientId
               value: payments-service-k3s
+            - name: PaymentDecisionRequest__BootstrapServers
+              value: kafka:9092
             - name: SchemaRegistry__Url
               value: http://schema-registry:8081
             - name: InstanceId

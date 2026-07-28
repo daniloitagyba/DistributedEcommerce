@@ -36,7 +36,7 @@ public sealed class OrderSagaOrchestrator(
             BootstrapServers = _options.BootstrapServers,
             GroupId = _options.RequestConsumerGroup,
             ClientId = _options.ClientId,
-            AutoOffsetReset = AutoOffsetReset.Latest,
+            AutoOffsetReset = AutoOffsetReset.Earliest,
             EnableAutoCommit = true,
             AutoCommitIntervalMs = 1_000,
             AllowAutoCreateTopics = false

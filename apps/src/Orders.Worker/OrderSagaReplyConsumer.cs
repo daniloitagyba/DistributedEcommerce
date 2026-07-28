@@ -20,7 +20,7 @@ public sealed class OrderSagaReplyConsumer(
             BootstrapServers = _options.BootstrapServers,
             GroupId = _options.ReplyConsumerGroup,
             ClientId = $"{_options.ClientId}-reply",
-            AutoOffsetReset = AutoOffsetReset.Latest,
+            AutoOffsetReset = AutoOffsetReset.Earliest,
             EnableAutoCommit = true,
             AutoCommitIntervalMs = 1_000,
             AllowAutoCreateTopics = false

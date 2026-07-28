@@ -31,7 +31,7 @@ public sealed class PaymentDecisionRequestHandler(
             BootstrapServers = _requestOptions.BootstrapServers,
             GroupId = _requestOptions.ConsumerGroup,
             ClientId = _requestOptions.ClientId,
-            AutoOffsetReset = AutoOffsetReset.Latest,
+            AutoOffsetReset = AutoOffsetReset.Earliest,
             EnableAutoCommit = true,
             AutoCommitIntervalMs = 1_000,
             AllowAutoCreateTopics = false

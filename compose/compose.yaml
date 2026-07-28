@@ -44,6 +44,12 @@ services:
       - work_mem=4MB
       - -c
       - max_connections=100
+      - -c
+      - wal_level=logical
+      - -c
+      - max_wal_senders=5
+      - -c
+      - max_replication_slots=5
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -152,6 +158,10 @@ services:
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic payments.result.dlq.v1 --partitions 1 --replication-factor 1 --config retention.ms=86400000
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic orders.projection.dlq.v1 --partitions 1 --replication-factor 1 --config retention.ms=86400000
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic _schemas --partitions 1 --replication-factor 1 --config cleanup.policy=compact
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic debezium-connect-configs --partitions 1 --replication-factor 1 --config cleanup.policy=compact
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic debezium-connect-offsets --partitions 5 --replication-factor 1 --config cleanup.policy=compact
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic debezium-connect-status --partitions 1 --replication-factor 1 --config cleanup.policy=compact
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic orders-cdc.public.outbox_messages --partitions 3 --replication-factor 1 --config retention.ms=86400000
     networks:
       - backend
     mem_limit: 256m
@@ -183,6 +193,41 @@ services:
         ipv4_address: 172.30.0.16
     mem_limit: 384m
     cpus: 0.50
+    stop_grace_period: 10s
+
+  debezium:
+    image: debezium/connect:2.7.3.Final
+    restart: unless-stopped
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    environment:
+      # Routed through the existing "kafka" Toxiproxy proxy rather than
+      # straight at kafka:9092 - Milestone 10's resilience-chaos.sh only
+      # reroutes the K8s-facing EndpointSlice, which Debezium (a Compose-only
+      # service) never touches, so this is the only way to fault-inject a
+      # Kafka outage against Debezium's own connection without also
+      # affecting K8s traffic.
+      BOOTSTRAP_SERVERS: toxiproxy:19092
+      GROUP_ID: debezium-connect
+      CONFIG_STORAGE_TOPIC: debezium-connect-configs
+      OFFSET_STORAGE_TOPIC: debezium-connect-offsets
+      STATUS_STORAGE_TOPIC: debezium-connect-status
+      CONNECT_REST_ADVERTISED_HOST_NAME: debezium
+    ports:
+      - "127.0.0.1:${DEBEZIUM_PORT:-8083}:8083"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8083/connectors"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+    networks:
+      - backend
+    mem_limit: 768m
+    cpus: 0.75
     stop_grace_period: 10s
 
   migrations:

@@ -75,6 +75,7 @@ builder.Services.AddSingleton<IAdminClient>(serviceProvider =>
     return new AdminClientBuilder(config).Build();
 });
 builder.Services.AddOrdersResilience();
+builder.Services.AddOrdersSchemaRegistry(builder.Configuration);
 builder.Services.AddSingleton<IPaymentEventPublisher, KafkaPaymentEventPublisher>();
 builder.Services.AddSingleton<IDeadLetterPublisher, KafkaDeadLetterPublisher>();
 builder.Services.AddSingleton<PaymentMessageProcessor>();

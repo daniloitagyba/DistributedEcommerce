@@ -10,7 +10,7 @@ namespace Orders.Worker;
 public interface IOrderProjectionDeadLetterPublisher
 {
     Task PublishAsync(
-        ConsumeResult<string, string> consumeResult,
+        ConsumeResult<string, byte[]> consumeResult,
         Exception exception,
         int attemptCount,
         CancellationToken cancellationToken);
@@ -25,7 +25,7 @@ public sealed class OrderProjectionDeadLetterPublisher(
     private readonly OrderProjectionOptions _options = options.Value;
 
     public async Task PublishAsync(
-        ConsumeResult<string, string> consumeResult,
+        ConsumeResult<string, byte[]> consumeResult,
         Exception exception,
         int attemptCount,
         CancellationToken cancellationToken)
@@ -39,7 +39,7 @@ public sealed class OrderProjectionDeadLetterPublisher(
             consumeResult.Partition.Value,
             consumeResult.Offset.Value,
             consumeResult.Message.Key,
-            consumeResult.Message.Value,
+            Convert.ToBase64String(consumeResult.Message.Value),
             exception.GetType().Name,
             failureMessage,
             attemptCount,

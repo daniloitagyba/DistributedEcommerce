@@ -1,8 +1,11 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using Avro.Generic;
 using BuildingBlocks;
 using Confluent.Kafka;
+using Confluent.SchemaRegistry;
+using Confluent.SchemaRegistry.Serdes;
 using Microsoft.Extensions.Options;
 
 namespace Orders.Worker;
@@ -13,14 +16,16 @@ public sealed class InvalidProjectionMessageException(string message, Exception?
 public sealed class OrderProjectionProcessor(
     InboxStore inboxStore,
     OrderProjectionStore projectionStore,
+    ISchemaRegistryClient schemaRegistryClient,
     IOptions<OrderProjectionOptions> options,
     ILogger<OrderProjectionProcessor> logger)
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
     private readonly OrderProjectionOptions _options = options.Value;
+    private readonly AvroDeserializer<GenericRecord> _avroDeserializer = new(schemaRegistryClient);
 
     public async Task<MessageProcessingResult> ProcessAsync(
-        ConsumeResult<string, string> consumeResult,
+        ConsumeResult<string, byte[]> consumeResult,
         CancellationToken cancellationToken)
     {
         if (consumeResult.Topic == _options.OrderCreatedTopic)
@@ -37,10 +42,10 @@ public sealed class OrderProjectionProcessor(
     }
 
     private async Task<MessageProcessingResult> ProcessOrderCreatedAsync(
-        ConsumeResult<string, string> consumeResult,
+        ConsumeResult<string, byte[]> consumeResult,
         CancellationToken cancellationToken)
     {
-        var orderCreated = Deserialize<OrderCreated>(consumeResult.Message.Value, "OrderCreated event");
+        var orderCreated = await DeserializeAvroAsync(consumeResult, "OrderCreated event", cancellationToken);
         if (orderCreated.EventId == Guid.Empty || orderCreated.OrderId == Guid.Empty)
         {
             throw new InvalidProjectionMessageException("The OrderCreated event and order identifiers are required.");
@@ -82,10 +87,10 @@ public sealed class OrderProjectionProcessor(
     }
 
     private async Task<MessageProcessingResult> ProcessPaymentDecidedAsync(
-        ConsumeResult<string, string> consumeResult,
+        ConsumeResult<string, byte[]> consumeResult,
         CancellationToken cancellationToken)
     {
-        var paymentDecided = Deserialize<PaymentDecided>(consumeResult.Message.Value, "PaymentDecided event");
+        var paymentDecided = DeserializeJson<PaymentDecided>(consumeResult.Message.Value, "PaymentDecided event");
         if (paymentDecided.EventId == Guid.Empty || paymentDecided.OrderId == Guid.Empty)
         {
             throw new InvalidProjectionMessageException("The PaymentDecided event and order identifiers are required.");
@@ -126,7 +131,7 @@ public sealed class OrderProjectionProcessor(
     }
 
     private static Activity? StartActivity(
-        ConsumeResult<string, string> consumeResult,
+        ConsumeResult<string, byte[]> consumeResult,
         string correlationId,
         Guid eventId,
         Guid orderId)
@@ -143,7 +148,25 @@ public sealed class OrderProjectionProcessor(
         return activity;
     }
 
-    private static T Deserialize<T>(string payload, string description)
+    private async Task<OrderCreated> DeserializeAvroAsync(
+        ConsumeResult<string, byte[]> consumeResult,
+        string description,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var context = new SerializationContext(MessageComponentType.Value, consumeResult.Topic, consumeResult.Message.Headers);
+            var record = await _avroDeserializer.DeserializeAsync(consumeResult.Message.Value, isNull: false, context)
+                .WaitAsync(cancellationToken);
+            return OrderCreatedAvroSchema.FromGenericRecord(record);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            throw new InvalidProjectionMessageException($"The Kafka message is not a valid {description}.", exception);
+        }
+    }
+
+    private static T DeserializeJson<T>(byte[] payload, string description)
     {
         try
         {

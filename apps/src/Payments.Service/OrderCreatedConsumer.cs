@@ -30,7 +30,7 @@ public sealed class OrderCreatedConsumer(
             SessionTimeoutMs = 10_000
         };
 
-        using var consumer = new ConsumerBuilder<string, string>(config).Build();
+        using var consumer = new ConsumerBuilder<string, byte[]>(config).Build();
         consumer.Subscribe(_options.OrderCreatedTopic);
         PaymentsLog.Started(logger, _options.OrderCreatedTopic, _options.ConsumerGroup);
 
@@ -38,7 +38,7 @@ public sealed class OrderCreatedConsumer(
         {
             while (!stoppingToken.IsCancellationRequested)
             {
-                ConsumeResult<string, string> consumeResult;
+                ConsumeResult<string, byte[]> consumeResult;
                 try
                 {
                     consumeResult = consumer.Consume(stoppingToken);
@@ -79,7 +79,7 @@ public sealed class OrderCreatedConsumer(
     }
 
     private async Task<bool> ProcessWithRetriesAsync(
-        ConsumeResult<string, string> consumeResult,
+        ConsumeResult<string, byte[]> consumeResult,
         CancellationToken cancellationToken)
     {
         for (var attempt = 1; attempt <= _processingOptions.MaximumAttempts; attempt++)
@@ -122,7 +122,7 @@ public sealed class OrderCreatedConsumer(
     }
 
     private async Task<bool> TryDeadLetterAsync(
-        ConsumeResult<string, string> consumeResult,
+        ConsumeResult<string, byte[]> consumeResult,
         Exception exception,
         int attemptCount,
         CancellationToken cancellationToken)

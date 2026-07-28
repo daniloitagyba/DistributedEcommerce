@@ -31,7 +31,7 @@ public sealed class OrderProjectionConsumer(
             SessionTimeoutMs = 10_000
         };
 
-        using var consumer = new ConsumerBuilder<string, string>(config).Build();
+        using var consumer = new ConsumerBuilder<string, byte[]>(config).Build();
         consumer.Subscribe([_options.OrderCreatedTopic, _options.PaymentResultTopic]);
         WorkerLog.StartedMultiTopic(logger, _options.OrderCreatedTopic, _options.PaymentResultTopic, _options.ConsumerGroup);
 
@@ -39,7 +39,7 @@ public sealed class OrderProjectionConsumer(
         {
             while (!stoppingToken.IsCancellationRequested)
             {
-                ConsumeResult<string, string> consumeResult;
+                ConsumeResult<string, byte[]> consumeResult;
                 try
                 {
                     consumeResult = consumer.Consume(stoppingToken);
@@ -80,7 +80,7 @@ public sealed class OrderProjectionConsumer(
     }
 
     private async Task<bool> ProcessWithRetriesAsync(
-        ConsumeResult<string, string> consumeResult,
+        ConsumeResult<string, byte[]> consumeResult,
         CancellationToken cancellationToken)
     {
         for (var attempt = 1; attempt <= _processingOptions.MaximumAttempts; attempt++)
@@ -123,7 +123,7 @@ public sealed class OrderProjectionConsumer(
     }
 
     private async Task<bool> TryDeadLetterAsync(
-        ConsumeResult<string, string> consumeResult,
+        ConsumeResult<string, byte[]> consumeResult,
         Exception exception,
         int attemptCount,
         CancellationToken cancellationToken)

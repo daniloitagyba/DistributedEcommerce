@@ -1,8 +1,10 @@
 using System.Diagnostics;
 using System.Text;
-using System.Text.Json;
+using Avro.Generic;
 using BuildingBlocks;
 using Confluent.Kafka;
+using Confluent.SchemaRegistry;
+using Confluent.SchemaRegistry.Serdes;
 using Microsoft.Extensions.Options;
 
 namespace Orders.Worker;
@@ -18,17 +20,18 @@ public sealed class InvalidOrderMessageException(string message, Exception? inne
 
 public sealed class OrderMessageProcessor(
     InboxStore inboxStore,
+    ISchemaRegistryClient schemaRegistryClient,
     IOptions<KafkaOptions> options,
     ILogger<OrderMessageProcessor> logger)
 {
-    private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
     private readonly KafkaOptions _options = options.Value;
+    private readonly AvroDeserializer<GenericRecord> _avroDeserializer = new(schemaRegistryClient);
 
     public async Task<MessageProcessingResult> ProcessAsync(
-        ConsumeResult<string, string> consumeResult,
+        ConsumeResult<string, byte[]> consumeResult,
         CancellationToken cancellationToken)
     {
-        var orderCreated = DeserializeAndValidate(consumeResult.Message.Value);
+        var orderCreated = await DeserializeAndValidateAsync(consumeResult, cancellationToken);
         var correlationId = GetHeader(consumeResult.Message.Headers, MessagingHeaders.CorrelationId)
             ?? orderCreated.CorrelationId;
         var traceParent = GetHeader(consumeResult.Message.Headers, MessagingHeaders.TraceParent);
@@ -78,15 +81,19 @@ public sealed class OrderMessageProcessor(
         return MessageProcessingResult.Processed;
     }
 
-    private static OrderCreated DeserializeAndValidate(string payload)
+    private async Task<OrderCreated> DeserializeAndValidateAsync(
+        ConsumeResult<string, byte[]> consumeResult,
+        CancellationToken cancellationToken)
     {
         OrderCreated orderCreated;
         try
         {
-            orderCreated = JsonSerializer.Deserialize<OrderCreated>(payload, SerializerOptions)
-                ?? throw new JsonException("The Kafka message did not contain an OrderCreated event.");
+            var context = new SerializationContext(MessageComponentType.Value, consumeResult.Topic, consumeResult.Message.Headers);
+            var record = await _avroDeserializer.DeserializeAsync(consumeResult.Message.Value, isNull: false, context)
+                .WaitAsync(cancellationToken);
+            orderCreated = OrderCreatedAvroSchema.FromGenericRecord(record);
         }
-        catch (JsonException exception)
+        catch (Exception exception) when (exception is not OperationCanceledException)
         {
             throw new InvalidOrderMessageException("The Kafka message is not a valid OrderCreated event.", exception);
         }

@@ -54,6 +54,8 @@ spec:
               value: orders.created.v1
             - name: Kafka__ClientId
               value: orders-api
+            - name: SchemaRegistry__Url
+              value: http://schema-registry:8081
             - name: Redis__ConnectionString
               value: redis:6379
             - name: Cache__TimeToLiveSeconds

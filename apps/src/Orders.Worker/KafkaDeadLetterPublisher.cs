@@ -10,12 +10,15 @@ namespace Orders.Worker;
 public interface IDeadLetterPublisher
 {
     Task PublishAsync(
-        ConsumeResult<string, string> consumeResult,
+        ConsumeResult<string, byte[]> consumeResult,
         Exception exception,
         int attemptCount,
         CancellationToken cancellationToken);
 }
 
+// OriginalPayload is base64 of the raw message bytes (Milestone 19: some
+// topics now carry Avro, not JSON, so the dead-letter envelope stores the
+// original payload uniformly rather than assuming it's printable text).
 public sealed record DeadLetterEnvelope(
     Guid DeadLetterId,
     string OriginalTopic,
@@ -37,7 +40,7 @@ public sealed class KafkaDeadLetterPublisher(
     private readonly KafkaOptions _options = options.Value;
 
     public async Task PublishAsync(
-        ConsumeResult<string, string> consumeResult,
+        ConsumeResult<string, byte[]> consumeResult,
         Exception exception,
         int attemptCount,
         CancellationToken cancellationToken)
@@ -51,7 +54,7 @@ public sealed class KafkaDeadLetterPublisher(
             consumeResult.Partition.Value,
             consumeResult.Offset.Value,
             consumeResult.Message.Key,
-            consumeResult.Message.Value,
+            Convert.ToBase64String(consumeResult.Message.Value),
             exception.GetType().Name,
             failureMessage,
             attemptCount,

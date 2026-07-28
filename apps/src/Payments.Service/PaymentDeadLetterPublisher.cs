@@ -10,12 +10,14 @@ namespace Payments.Service;
 public interface IDeadLetterPublisher
 {
     Task PublishAsync(
-        ConsumeResult<string, string> consumeResult,
+        ConsumeResult<string, byte[]> consumeResult,
         Exception exception,
         int attemptCount,
         CancellationToken cancellationToken);
 }
 
+// OriginalPayload is base64 of the raw message bytes (Milestone 19:
+// orders.created.v1 now carries Avro, not JSON).
 public sealed record DeadLetterEnvelope(
     Guid DeadLetterId,
     string OriginalTopic,
@@ -37,7 +39,7 @@ public sealed class KafkaDeadLetterPublisher(
     private readonly PaymentsKafkaOptions _options = options.Value;
 
     public async Task PublishAsync(
-        ConsumeResult<string, string> consumeResult,
+        ConsumeResult<string, byte[]> consumeResult,
         Exception exception,
         int attemptCount,
         CancellationToken cancellationToken)
@@ -51,7 +53,7 @@ public sealed class KafkaDeadLetterPublisher(
             consumeResult.Partition.Value,
             consumeResult.Offset.Value,
             consumeResult.Message.Key,
-            consumeResult.Message.Value,
+            Convert.ToBase64String(consumeResult.Message.Value),
             exception.GetType().Name,
             failureMessage,
             attemptCount,

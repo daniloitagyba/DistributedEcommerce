@@ -34,8 +34,9 @@ public static class InfrastructureServiceCollectionExtensions
             .ValidateOnStart();
 
         services.AddDbContext<OrdersDbContext>(options => options.UseNpgsql(connectionString));
+        services.AddOrdersSchemaRegistry(configuration);
 
-        services.AddSingleton<IProducer<string, string>>(serviceProvider =>
+        services.AddSingleton<IProducer<string, byte[]>>(serviceProvider =>
         {
             var options = serviceProvider.GetRequiredService<IOptions<KafkaOptions>>().Value;
             var config = new ProducerConfig
@@ -48,7 +49,7 @@ public static class InfrastructureServiceCollectionExtensions
                 SocketTimeoutMs = 10_000
             };
 
-            return new ProducerBuilder<string, string>(config).Build();
+            return new ProducerBuilder<string, byte[]>(config).Build();
         });
         services.AddSingleton<IAdminClient>(serviceProvider =>
         {

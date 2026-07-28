@@ -10,11 +10,14 @@ x-api-common: &api-common
     Kafka__BootstrapServers: kafka:9092
     Kafka__OrderCreatedTopic: orders.created.v1
     Kafka__ClientId: orders-api
+    SchemaRegistry__Url: http://schema-registry:8081
   depends_on:
     migrations:
       condition: service_completed_successfully
     kafka-init:
       condition: service_completed_successfully
+    schema-registry:
+      condition: service_healthy
   networks:
     - frontend
     - backend
@@ -148,10 +151,39 @@ services:
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic payments.decisions.dlq.v1 --partitions 1 --replication-factor 1 --config retention.ms=86400000
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic payments.result.dlq.v1 --partitions 1 --replication-factor 1 --config retention.ms=86400000
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic orders.projection.dlq.v1 --partitions 1 --replication-factor 1 --config retention.ms=86400000
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic _schemas --partitions 1 --replication-factor 1 --config cleanup.policy=compact
     networks:
       - backend
     mem_limit: 256m
     cpus: 0.50
+
+  schema-registry:
+    image: ghcr.io/aiven-open/karapace:6.2.1
+    restart: unless-stopped
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      KARAPACE_BOOTSTRAP_URI: kafka:9092
+      KARAPACE_HOST: 0.0.0.0
+      KARAPACE_PORT: 8081
+      KARAPACE_ADVERTISED_HOSTNAME: schema-registry
+      KARAPACE_TOPIC_NAME: _schemas
+      KARAPACE_COMPATIBILITY: BACKWARD
+    command: ["python3", "-m", "karapace"]
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8081/subjects"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 15s
+    networks:
+      backend:
+      k3s-bridge:
+        ipv4_address: 172.30.0.16
+    mem_limit: 384m
+    cpus: 0.50
+    stop_grace_period: 10s
 
   migrations:
     profiles: ["compose-apps"]
@@ -183,6 +215,7 @@ services:
       Kafka__BootstrapServers: kafka:9092
       Kafka__OrderCreatedTopic: orders.created.v1
       Kafka__ClientId: orders-api
+      SchemaRegistry__Url: http://schema-registry:8081
       InstanceId: orders-api-1
 
   orders-api-2:
@@ -193,6 +226,7 @@ services:
       Kafka__BootstrapServers: kafka:9092
       Kafka__OrderCreatedTopic: orders.created.v1
       Kafka__ClientId: orders-api
+      SchemaRegistry__Url: http://schema-registry:8081
       InstanceId: orders-api-2
 
   orders-worker:
@@ -210,12 +244,15 @@ services:
       Kafka__DeadLetterTopic: orders.created.dlq.v1
       Kafka__ConsumerGroup: orders-worker
       Kafka__ClientId: orders-worker-1
+      SchemaRegistry__Url: http://schema-registry:8081
       InstanceId: orders-worker-1
     depends_on:
       kafka-init:
         condition: service_completed_successfully
       migrations:
         condition: service_completed_successfully
+      schema-registry:
+        condition: service_healthy
     networks:
       - backend
     mem_limit: 256m
@@ -238,10 +275,13 @@ services:
       Kafka__DeadLetterTopic: payments.decisions.dlq.v1
       Kafka__ConsumerGroup: payments-service
       Kafka__ClientId: payments-service-1
+      SchemaRegistry__Url: http://schema-registry:8081
       InstanceId: payments-service-1
     depends_on:
       kafka-init:
         condition: service_completed_successfully
+      schema-registry:
+        condition: service_healthy
     networks:
       - backend
     mem_limit: 256m

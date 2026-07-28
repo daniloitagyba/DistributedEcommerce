@@ -1,8 +1,10 @@
 using System.Diagnostics;
 using System.Text;
-using System.Text.Json;
+using Avro.Generic;
 using BuildingBlocks;
 using Confluent.Kafka;
+using Confluent.SchemaRegistry;
+using Confluent.SchemaRegistry.Serdes;
 using Microsoft.Extensions.Options;
 using Polly.Registry;
 
@@ -14,12 +16,14 @@ public interface IOrderEventPublisher
 }
 
 public sealed class KafkaOrderEventPublisher(
-    IProducer<string, string> producer,
+    IProducer<string, byte[]> producer,
+    ISchemaRegistryClient schemaRegistryClient,
     IOptions<KafkaOptions> options,
     ResiliencePipelineProvider<string> pipelineProvider) : IOrderEventPublisher
 {
-    private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
     private readonly Polly.ResiliencePipeline _pipeline = pipelineProvider.GetPipeline(ResilienceExtensions.KafkaProducerPipeline);
+    private readonly AvroSerializer<GenericRecord> _avroSerializer =
+        new(schemaRegistryClient, new AvroSerializerConfig { AutoRegisterSchemas = true });
 
     public async Task PublishAsync(OrderCreated orderCreated, CancellationToken cancellationToken)
     {
@@ -28,10 +32,14 @@ public sealed class KafkaOrderEventPublisher(
         AddHeader(headers, MessagingHeaders.TraceParent, Activity.Current?.Id);
         AddHeader(headers, MessagingHeaders.TraceState, Activity.Current?.TraceStateString);
 
-        var message = new Message<string, string>
+        var record = OrderCreatedAvroSchema.ToGenericRecord(orderCreated);
+        var context = new SerializationContext(MessageComponentType.Value, options.Value.OrderCreatedTopic, headers);
+        var value = await _avroSerializer.SerializeAsync(record, context);
+
+        var message = new Message<string, byte[]>
         {
             Key = orderCreated.OrderId.ToString("N"),
-            Value = JsonSerializer.Serialize(orderCreated, SerializerOptions),
+            Value = value,
             Headers = headers
         };
 

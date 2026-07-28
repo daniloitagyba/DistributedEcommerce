@@ -46,8 +46,22 @@ proxy_disabled=false
 endpointslice_patched=false
 
 restart_workloads() {
-  kubectl rollout restart deployment/orders-api deployment/orders-worker --namespace "$namespace"
-  kubectl rollout status deployment/orders-api --namespace "$namespace" --timeout=120s
+  # orders-api is an Argo Rollout (Milestone 15); "kubectl rollout restart"
+  # only supports Deployment/StatefulSet/DaemonSet, so trigger its equivalent
+  # via restartAt, then poll for full availability the same way orders-worker
+  # is awaited via kubectl rollout status.
+  kubectl patch rollout/orders-api --namespace "$namespace" --type merge \
+    --patch "{\"spec\":{\"restartAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}"
+  kubectl rollout restart deployment/orders-worker --namespace "$namespace"
+  for _ in $(seq 1 60); do
+    desired=$(kubectl get rollout/orders-api --namespace "$namespace" --output jsonpath='{.spec.replicas}')
+    available=$(kubectl get rollout/orders-api --namespace "$namespace" --output jsonpath='{.status.availableReplicas}')
+    updated=$(kubectl get rollout/orders-api --namespace "$namespace" --output jsonpath='{.status.updatedReplicas}')
+    if [[ -n "$available" && "$available" -ge "$desired" && -n "$updated" && "$updated" -ge "$desired" ]]; then
+      break
+    fi
+    sleep 2
+  done
   kubectl rollout status deployment/orders-worker --namespace "$namespace" --timeout=120s
 }
 

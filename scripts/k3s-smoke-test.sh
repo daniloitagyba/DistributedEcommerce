@@ -6,17 +6,18 @@ namespace=${KUBERNETES_NAMESPACE:-orders-lab}
 local_port=${K3S_SMOKE_PORT:-18088}
 temporary_directory=$(mktemp -d)
 
-kubectl wait \
-  --namespace "$namespace" \
-  --for=condition=available \
-  deployment/orders-api \
-  --timeout=120s >/dev/null
-
-deployment_json=$(kubectl get deployment/orders-api --namespace "$namespace" --output json)
-desired_replicas=$(jq --raw-output '.spec.replicas' <<<"$deployment_json")
-ready_replicas=$(jq --raw-output '.status.readyReplicas // 0' <<<"$deployment_json")
-if [[ "$desired_replicas" != "2" || "$ready_replicas" != "2" ]]; then
-  printf 'Expected two ready Orders API replicas; desired=%s ready=%s.\n' "$desired_replicas" "$ready_replicas" >&2
+# orders-api is an Argo Rollout (Milestone 15), reconciled by Argo CD and
+# horizontally scaled by an HPA (Milestone 13) - its replica count moves with
+# load, so this only asserts every desired replica is actually ready rather
+# than a specific fixed count.
+for _ in $(seq 1 60); do
+  rollout_json=$(kubectl get rollout/orders-api --namespace "$namespace" --output json 2>/dev/null) && break
+  sleep 2
+done
+desired_replicas=$(jq --raw-output '.spec.replicas' <<<"$rollout_json")
+ready_replicas=$(jq --raw-output '.status.readyReplicas // 0' <<<"$rollout_json")
+if [[ -z "$desired_replicas" || "$ready_replicas" -lt "$desired_replicas" ]]; then
+  printf 'Expected all Orders API replicas ready; desired=%s ready=%s.\n' "$desired_replicas" "$ready_replicas" >&2
   exit 1
 fi
 

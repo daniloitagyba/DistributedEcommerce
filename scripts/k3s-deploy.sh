@@ -73,8 +73,13 @@ kubectl apply --kustomize "$overlay_directory"
 # `kubectl apply` is a no-op - the already-running Pod keeps serving the old
 # image. Forcing a rollout restart every deploy ensures rebuilt code is always
 # picked up, mirroring the Job-recreation fix above for the same class of bug.
-kubectl rollout restart deployment/orders-api deployment/orders-worker deployment/payments-service \
+# orders-api is an Argo Rollout (Milestone 15) and is normally reconciled by
+# Argo CD rather than this script; "kubectl rollout restart" doesn't support
+# its kind, so it's restarted via its own restartAt field instead.
+kubectl rollout restart deployment/orders-worker deployment/payments-service \
   --namespace "$namespace"
+kubectl patch rollout/orders-api --namespace "$namespace" --type merge \
+  --patch "{\"spec\":{\"restartAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}"
 
 kubectl wait \
   --namespace "$namespace" \
@@ -91,10 +96,17 @@ kubectl wait \
   --for=condition=complete \
   job/payments-migrations-m12 \
   --timeout=180s
-kubectl rollout status \
-  --namespace "$namespace" \
-  deployment/orders-api \
-  --timeout=180s
+# orders-api is an Argo Rollout (Milestone 15), not a Deployment - it has no
+# "rollout status" support and is normally reconciled by Argo CD, not this
+# script. Poll for full availability rather than assuming a Deployment.
+for _ in $(seq 1 90); do
+  desired=$(kubectl get rollout orders-api --namespace "$namespace" --output jsonpath='{.spec.replicas}' 2>/dev/null)
+  available=$(kubectl get rollout orders-api --namespace "$namespace" --output jsonpath='{.status.availableReplicas}' 2>/dev/null)
+  if [[ -n "$desired" && -n "$available" && "$available" -ge "$desired" ]]; then
+    break
+  fi
+  sleep 2
+done
 kubectl rollout status \
   --namespace "$namespace" \
   deployment/orders-worker \

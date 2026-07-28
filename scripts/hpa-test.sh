@@ -21,9 +21,17 @@ printf 'timestamp,current_replicas,desired_replicas,ready_replicas,current_cpu\n
 kubectl wait \
   --namespace "$namespace" \
   --for=condition=available \
-  deployment/orders-api \
   deployment/orders-worker \
   --timeout=120s >/dev/null
+
+# orders-api is an Argo Rollout (Milestone 15), not a Deployment; its
+# HPA-managed minimum replica count is read dynamically rather than assumed,
+# since it has changed across milestones (2 originally, 3 since Milestone 13).
+min_replicas=$(
+  kubectl get horizontalpodautoscaler/orders-api \
+    --namespace "$namespace" \
+    --output jsonpath='{.spec.minReplicas}'
+)
 
 hpa_at_minimum=false
 for attempt in $(seq 1 36); do
@@ -33,15 +41,15 @@ for attempt in $(seq 1 36); do
       --output jsonpath='{.status.desiredReplicas}'
   )
   ready_replicas=$(
-    kubectl get deployment/orders-api \
+    kubectl get rollout/orders-api \
       --namespace "$namespace" \
       --output jsonpath='{.status.readyReplicas}'
   )
-  if [[ "$desired_replicas" == "2" && "$ready_replicas" == "2" ]]; then
+  if [[ "$desired_replicas" == "$min_replicas" && "$ready_replicas" == "$min_replicas" ]]; then
     hpa_at_minimum=true
     break
   fi
-  printf 'Waiting for the HPA precondition: desired=%s ready=%s\n' "$desired_replicas" "$ready_replicas"
+  printf 'Waiting for the HPA precondition: desired=%s ready=%s (want %s)\n' "$desired_replicas" "$ready_replicas" "$min_replicas"
   sleep 5
 done
 if [[ "$hpa_at_minimum" != true ]]; then
@@ -66,11 +74,11 @@ load_pid=$!
 max_replicas=0
 while kill -0 "$load_pid" 2>/dev/null; do
   hpa_json=$(kubectl get horizontalpodautoscaler/orders-api --namespace "$namespace" --output json)
-  deployment_json=$(kubectl get deployment/orders-api --namespace "$namespace" --output json)
+  rollout_json=$(kubectl get rollout/orders-api --namespace "$namespace" --output json)
   current_replicas=$(jq --raw-output '.status.currentReplicas // 0' <<<"$hpa_json")
   desired_replicas=$(jq --raw-output '.status.desiredReplicas // 0' <<<"$hpa_json")
   current_cpu=$(jq --raw-output '.status.currentMetrics[0].resource.current.averageUtilization // 0' <<<"$hpa_json")
-  ready_replicas=$(jq --raw-output '.status.readyReplicas // 0' <<<"$deployment_json")
+  ready_replicas=$(jq --raw-output '.status.readyReplicas // 0' <<<"$rollout_json")
 
   if (( current_replicas > max_replicas )); then
     max_replicas=$current_replicas
@@ -100,8 +108,8 @@ if (( load_exit_code != 0 )); then
   exit "$load_exit_code"
 fi
 
-if (( max_replicas < 3 )); then
-  printf 'HPA did not scale above two replicas; maximum observed was %s.\n' "$max_replicas" >&2
+if (( max_replicas <= min_replicas )); then
+  printf 'HPA did not scale above its minimum of %s; maximum observed was %s.\n' "$min_replicas" "$max_replicas" >&2
   exit 1
 fi
 
@@ -113,12 +121,12 @@ for attempt in $(seq 1 36); do
       --output jsonpath='{.status.desiredReplicas}'
   )
   ready_replicas=$(
-    kubectl get deployment/orders-api \
+    kubectl get rollout/orders-api \
       --namespace "$namespace" \
       --output jsonpath='{.status.readyReplicas}'
   )
-  printf 'Waiting for scale-down: desired=%s ready=%s\n' "$desired_replicas" "$ready_replicas"
-  if [[ "$desired_replicas" == "2" && "$ready_replicas" == "2" ]]; then
+  printf 'Waiting for scale-down: desired=%s ready=%s (want %s)\n' "$desired_replicas" "$ready_replicas" "$min_replicas"
+  if [[ "$desired_replicas" == "$min_replicas" && "$ready_replicas" == "$min_replicas" ]]; then
     scaled_down=true
     break
   fi
@@ -130,5 +138,5 @@ if [[ "$scaled_down" != true ]]; then
   exit 1
 fi
 
-printf 'HPA_RESULT max_replicas=%s final_replicas=2\n' "$max_replicas" |
+printf 'HPA_RESULT max_replicas=%s final_replicas=%s\n' "$max_replicas" "$min_replicas" |
   tee "$test_directory/result.txt"

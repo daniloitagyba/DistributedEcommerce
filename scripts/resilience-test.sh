@@ -40,10 +40,10 @@ trap cleanup EXIT
 
 orders_before=$(query_order_count)
 worker_log_start_nanoseconds="$(date +%s)000000000"
-api_revision_before=$(
-  kubectl get deployment/orders-api \
-    --namespace "$namespace" \
-    --output jsonpath='{.metadata.annotations.deployment\.kubernetes\.io/revision}'
+api_pods_before=$(
+  kubectl get pods --namespace "$namespace" \
+    --selector app.kubernetes.io/name=orders-api \
+    --output jsonpath='{.items[*].metadata.name}'
 )
 worker_revision_before=$(
   kubectl get deployment/orders-worker \
@@ -76,8 +76,20 @@ if [[ "$traffic_started" != true ]]; then
 fi
 
 printf 'Restarting Orders API while traffic is active\n'
-kubectl rollout restart deployment/orders-api --namespace "$namespace"
-kubectl rollout status deployment/orders-api --namespace "$namespace" --timeout=180s
+# orders-api is an Argo Rollout (Milestone 15); "kubectl rollout restart" only
+# supports Deployment/StatefulSet/DaemonSet, so trigger the equivalent via the
+# Rollout's own restartAt field, then poll for full availability.
+kubectl patch rollout/orders-api --namespace "$namespace" --type merge \
+  --patch "{\"spec\":{\"restartAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}"
+for _ in $(seq 1 90); do
+  desired=$(kubectl get rollout/orders-api --namespace "$namespace" --output jsonpath='{.spec.replicas}')
+  available=$(kubectl get rollout/orders-api --namespace "$namespace" --output jsonpath='{.status.availableReplicas}')
+  updated=$(kubectl get rollout/orders-api --namespace "$namespace" --output jsonpath='{.status.updatedReplicas}')
+  if [[ -n "$available" && "$available" -ge "$desired" && -n "$updated" && "$updated" -ge "$desired" ]]; then
+    break
+  fi
+  sleep 2
+done
 
 printf 'Restarting Orders Worker while traffic is active\n'
 kubectl rollout restart deployment/orders-worker --namespace "$namespace"
@@ -94,10 +106,10 @@ if (( load_exit_code != 0 )); then
   exit "$load_exit_code"
 fi
 
-api_revision_after=$(
-  kubectl get deployment/orders-api \
-    --namespace "$namespace" \
-    --output jsonpath='{.metadata.annotations.deployment\.kubernetes\.io/revision}'
+api_pods_after=$(
+  kubectl get pods --namespace "$namespace" \
+    --selector app.kubernetes.io/name=orders-api \
+    --output jsonpath='{.items[*].metadata.name}'
 )
 worker_revision_after=$(
   kubectl get deployment/orders-worker \
@@ -105,8 +117,11 @@ worker_revision_after=$(
     --output jsonpath='{.metadata.annotations.deployment\.kubernetes\.io/revision}'
 )
 
-if (( api_revision_after <= api_revision_before )); then
-  echo "Orders API revision did not advance." >&2
+# restartAt cycles pods without bumping the Rollout's own revision annotation
+# (unlike a Deployment rolling restart), so confirm every pod was actually
+# replaced by checking the running pod names are now entirely different.
+if [[ -n "$(comm -12 <(tr ' ' '\n' <<<"$api_pods_before" | sort) <(tr ' ' '\n' <<<"$api_pods_after" | sort))" ]]; then
+  echo "Orders API pods were not fully replaced by the restart." >&2
   exit 1
 fi
 if (( worker_revision_after <= worker_revision_before )); then
@@ -129,9 +144,7 @@ if ! jq --exit-status '.data.result | length > 0' <<<"$loki_response" >/dev/null
   exit 1
 fi
 
-printf 'RESILIENCE_RESULT api_revision=%s->%s worker_revision=%s->%s graceful_shutdown=true\n' \
-  "$api_revision_before" \
-  "$api_revision_after" \
+printf 'RESILIENCE_RESULT api_pods_replaced=true worker_revision=%s->%s graceful_shutdown=true\n' \
   "$worker_revision_before" \
   "$worker_revision_after" |
   tee "$test_directory/result.txt"

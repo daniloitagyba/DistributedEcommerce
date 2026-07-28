@@ -13,6 +13,6 @@ spec:
         prometheus:
           address: http://prometheus.orders-lab.svc.cluster.local:9090
           query: |
-            sum(rate(http_server_request_duration_seconds_count{service_name="orders-api", http_response_status_code=~"5.."}[1m]))
+            (sum(rate(http_server_request_duration_seconds_count{service_name="orders-api", http_response_status_code=~"5.."}[1m])) or vector(0))
             /
-            (sum(rate(http_server_request_duration_seconds_count{service_name="orders-api"}[1m])) > 0 or vector(1))
+            (sum(rate(http_server_request_duration_seconds_count{service_name="orders-api"}[1m])) or vector(1))

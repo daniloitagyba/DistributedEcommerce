@@ -7,7 +7,7 @@ compose_directory="$project_directory/compose"
 overlay_directory="$project_directory/kubernetes/overlays/local"
 namespace=orders-lab
 
-for command_name in docker jq kubectl; do
+for command_name in docker kubectl; do
   command -v "$command_name" >/dev/null
 done
 
@@ -18,44 +18,9 @@ done
 # changed, so skipping this step can silently leave new topics uncreated.
 (cd "$compose_directory" && docker compose up --detach --wait)
 
-compose_config_json=$(
-  cd "$compose_directory" &&
-    docker compose --profile compose-apps config --format json
-)
-connection_string=$(jq --exit-status --raw-output '.services.migrations.environment.ConnectionStrings__Orders' <<<"$compose_config_json")
-payments_connection_string=$(jq --exit-status --raw-output '.services["payments-service"].environment.ConnectionStrings__Payments' <<<"$compose_config_json")
-
-if [[ -z "$connection_string" || "$connection_string" == "null" ]]; then
-  echo "The Orders connection string could not be resolved from Compose." >&2
-  exit 1
-fi
-if [[ -z "$payments_connection_string" || "$payments_connection_string" == "null" ]]; then
-  echo "The Payments connection string could not be resolved from Compose." >&2
-  exit 1
-fi
-
-secret_directory=$(mktemp -d)
-chmod 700 "$secret_directory"
-cleanup() {
-  unset connection_string payments_connection_string compose_config_json
-  rm -rf "$secret_directory"
-}
-trap cleanup EXIT
-
 "$script_directory/init-payments-db.sh"
 
-printf '%s' "$connection_string" >"$secret_directory/orders-connection-string"
-printf '%s' "$payments_connection_string" >"$secret_directory/payments-connection-string"
-chmod 600 "$secret_directory"/*
-
 kubectl apply --filename "$project_directory/kubernetes/base/namespace.yaml"
-kubectl create secret generic orders-runtime \
-  --namespace "$namespace" \
-  --from-file=orders-connection-string="$secret_directory/orders-connection-string" \
-  --from-file=payments-connection-string="$secret_directory/payments-connection-string" \
-  --dry-run=client \
-  --output yaml |
-  kubectl apply --filename -
 
 # Kubernetes Jobs are immutable once created and never rerun just because the
 # image they reference changed underneath the same tag - unlike Deployments,
@@ -67,6 +32,19 @@ kubectl delete job orders-migrations-m7 payments-migrations-m12 \
   --namespace "$namespace" --ignore-not-found
 
 kubectl apply --kustomize "$overlay_directory"
+
+# orders-runtime is no longer provisioned imperatively (Milestone 17): it's a
+# SealedSecret committed to kubernetes/base, applied above like every other
+# manifest, and decrypted in-cluster by the sealed-secrets controller a
+# moment later. Wait for that decryption before the Jobs/Pods below start
+# mounting it. If POSTGRES_PASSWORD ever changes, re-seal and commit rather
+# than recreating the Secret imperatively - see
+# docs/gitops/milestone-17-sealed-secrets.md.
+for _ in $(seq 1 30); do
+  kubectl get secret orders-runtime --namespace "$namespace" >/dev/null 2>&1 && break
+  sleep 2
+done
+kubectl get secret orders-runtime --namespace "$namespace" >/dev/null
 
 # Deployments use a static image tag with imagePullPolicy: IfNotPresent, so
 # rebuilding an image under the same tag leaves the Pod template unchanged and

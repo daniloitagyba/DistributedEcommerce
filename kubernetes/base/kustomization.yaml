@@ -4,6 +4,7 @@ namespace: orders-lab
 resources:
   - namespace.yaml
   - infrastructure-services.yaml
+  - orders-runtime-sealed-secret.yaml
   - orders-api.yaml
   - orders-api-hpa.yaml
   - orders-api-analysis-template.yaml

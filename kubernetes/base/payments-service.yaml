@@ -18,6 +18,8 @@ spec:
       labels:
         app.kubernetes.io/name: payments-service
         app.kubernetes.io/component: worker
+      annotations:
+        linkerd.io/inject: enabled
     spec:
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30

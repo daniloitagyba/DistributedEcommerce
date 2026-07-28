@@ -29,6 +29,8 @@ spec:
       labels:
         app.kubernetes.io/name: orders-api
         app.kubernetes.io/component: api
+      annotations:
+        linkerd.io/inject: enabled
     spec:
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30

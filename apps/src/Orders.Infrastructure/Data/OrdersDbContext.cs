@@ -30,7 +30,16 @@ public sealed class OrdersDbContext(DbContextOptions<OrdersDbContext> options) :
         order.HasKey(item => item.Id);
         order.Property(item => item.Id).HasColumnName("id").ValueGeneratedNever();
         order.Property(item => item.CustomerId).HasColumnName("customer_id").HasMaxLength(100).IsRequired();
-        order.Property(item => item.Amount).HasColumnName("amount").HasPrecision(18, 2).IsRequired();
+        // Milestone 20, cutover phase: Amount now reads/writes amount_cents
+        // directly via a value converter - the expand+dual-write phase
+        // backfilled every row, so the old `amount` column (still present,
+        // no longer touched) is safe to drop in the next, contract phase.
+        order.Property(item => item.Amount)
+            .HasColumnName("amount_cents")
+            .HasConversion(
+                amount => (long)Math.Round(amount * 100, MidpointRounding.AwayFromZero),
+                cents => cents / 100m)
+            .IsRequired();
         order.Property(item => item.Currency).HasColumnName("currency").HasMaxLength(3).IsRequired();
         order.Property(item => item.Status).HasColumnName("status").HasMaxLength(32).IsRequired();
         order.Property(item => item.CreatedAt).HasColumnName("created_at").IsRequired();

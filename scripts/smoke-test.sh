@@ -63,7 +63,8 @@ done
 
 worker_logged=false
 for attempt in $(seq 1 15); do
-  if worker_logs 2>&1 | grep --quiet --fixed-strings "$last_correlation_id"; then
+  captured_worker_logs=$(worker_logs 2>&1) || true
+  if grep --quiet --fixed-strings "$last_correlation_id" <<<"$captured_worker_logs"; then
     printf 'Worker consumed the final event with correlation %s\n' "$last_correlation_id"
     worker_logged=true
     break

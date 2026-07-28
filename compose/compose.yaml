@@ -395,8 +395,10 @@ services:
       node-exporter:
         condition: service_started
     networks:
-      - frontend
-      - backend
+      frontend:
+      backend:
+      k3s-bridge:
+        ipv4_address: 172.30.0.15
     mem_limit: 256m
     cpus: 0.50
     stop_grace_period: 20s

@@ -6,6 +6,7 @@ resources:
   - infrastructure-services.yaml
   - orders-api.yaml
   - orders-api-hpa.yaml
+  - orders-api-analysis-template.yaml
   - orders-worker.yaml
   - orders-worker-scaledobject.yaml
   - migration-job.yaml

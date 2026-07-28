@@ -7,8 +7,8 @@ metadata:
     app.kubernetes.io/component: api
 spec:
   scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
+    apiVersion: argoproj.io/v1alpha1
+    kind: Rollout
     name: orders-api
   minReplicas: 3
   maxReplicas: 5

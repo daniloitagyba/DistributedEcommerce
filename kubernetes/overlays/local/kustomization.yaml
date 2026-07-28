@@ -14,7 +14,7 @@ images:
     newTag: milestone-7
 patches:
   - target:
-      kind: Deployment
+      kind: Rollout
       name: orders-api
     patch: |-
       - op: replace

@@ -1,0 +1,18 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: orders-api-error-rate
+spec:
+  metrics:
+    - name: error-rate
+      interval: 15s
+      count: 3
+      successCondition: result[0] < 0.05
+      failureLimit: 1
+      provider:
+        prometheus:
+          address: http://prometheus.orders-lab.svc.cluster.local:9090
+          query: |
+            sum(rate(http_server_request_duration_seconds_count{service_name="orders-api", http_response_status_code=~"5.."}[1m]))
+            /
+            (sum(rate(http_server_request_duration_seconds_count{service_name="orders-api"}[1m])) > 0 or vector(1))

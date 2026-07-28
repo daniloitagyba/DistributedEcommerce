@@ -1,18 +1,26 @@
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
 metadata:
   name: orders-api
   labels:
     app.kubernetes.io/name: orders-api
     app.kubernetes.io/component: api
 spec:
-  replicas: 2
+  replicas: 3
   revisionHistoryLimit: 2
   strategy:
-    type: RollingUpdate
-    rollingUpdate:
+    canary:
       maxUnavailable: 1
       maxSurge: 1
+      steps:
+        - setWeight: 33
+        - pause: { duration: 30s }
+        - analysis:
+            templates:
+              - templateName: orders-api-error-rate
+        - setWeight: 66
+        - pause: { duration: 20s }
+        - setWeight: 100
   selector:
     matchLabels:
       app.kubernetes.io/name: orders-api

@@ -35,6 +35,15 @@ public static class OrderEndpoints
         ILogger<OrderEndpointLog> logger,
         CancellationToken cancellationToken)
     {
+        // DELIBERATE MILESTONE-15 DEMO DEFECT: forces every order creation to fail,
+        // so the canary's AnalysisRun has a real error rate to detect and roll back.
+        // Reverted in the very next commit. Condition is runtime-evaluated (always
+        // true for a real request) to avoid an unreachable-code compiler error.
+        if (httpContext.Request.Method == "POST")
+        {
+            throw new InvalidOperationException("Milestone 15 demo: deliberately broken canary.");
+        }
+
         var errors = CreateOrderRequestValidator.Validate(request);
         if (errors.Count > 0)
         {

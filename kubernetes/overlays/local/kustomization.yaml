@@ -7,7 +7,7 @@ resources:
   - connectivity-job.yaml
 images:
   - name: local-distributed-lab/orders-api
-    newTag: milestone-15-bad-canary
+    newTag: milestone-7
   - name: local-distributed-lab/orders-worker
     newTag: milestone-7
   - name: local-distributed-lab/payments-service

@@ -1,45 +1,61 @@
 # Local Distributed Systems Lab
 
-This repository is a practical distributed systems laboratory running on an Ubuntu server. Milestone 16 defines an SLO for `orders-api` and implements multi-window, multi-burn-rate alerting for it — a page-worthy fast-burn rule and a ticket-worthy slow-burn rule, both validated against a real, deliberately broken deploy rather than just written and left untested.
+This repository is a practical distributed systems laboratory running on an Ubuntu server, built up over sixteen milestones from a single-service Orders API into a multi-service, horizontally-scaled, GitOps-deployed, SLO-monitored system. Each milestone's own doc under `docs/` records what actually broke while validating it against the live deployment, not just the intended design.
+
+## Features
+
+- **Order lifecycle** — `orders-api` (create/read), transactional Outbox, PostgreSQL Inbox for idempotent Kafka consumption. See [Delivery guarantees](#delivery-guarantees).
+- **Caching** — Redis cache-aside with stampede protection and event-driven invalidation on order-status change. See [Caching](#caching).
+- **Resilience & chaos engineering** — Polly timeout/retry/circuit-breaker pipelines on every dependency, validated with real Toxiproxy fault injection (measured PostgreSQL/Kafka outage behavior). See [Resilience and chaos engineering](#resilience-and-chaos-engineering).
+- **Load shedding** — per-pod token-bucket rate limiting with `429`/`Retry-After` instead of cascading overload. See [Load shedding](#load-shedding).
+- **Choreographed saga** — an independent `Payments.Service` with its own database, coordinating with `orders-api` purely through Kafka events. See [Choreographed saga](#choreographed-saga).
+- **CQRS read projections** — a denormalized read model built by a third, independent Kafka consumer, with projection lag tracked as a first-class metric. See [CQRS read projections](#cqrs-read-projections).
+- **Two kinds of autoscaling** — CPU-based HPA for `orders-api`, Kafka consumer-group-lag-based KEDA for `orders-worker`. See [Kafka partitioning + KEDA autoscaling](#kafka-partitioning--keda-autoscaling).
+- **GitOps + progressive delivery** — Argo CD reconciles the cluster from `main`; `orders-api` deploys as an Argo Rollouts canary with an automated Prometheus-backed analysis gate and proven automatic rollback. See [GitOps + progressive delivery](#gitops--progressive-delivery).
+- **SLOs + burn-rate alerting** — a defined error budget with multi-window, multi-burn-rate alert rules validated against a real broken deploy. See [SLOs + burn-rate alerting](#slos--burn-rate-alerting).
+- **Full observability** — OpenTelemetry traces/metrics/logs, correlated across services, exported to Prometheus/Tempo/Loki and visualized in Grafana. See [Observability](#observability).
 
 ## Architecture
 
 ```text
 Mac client
     |
-    +-> SSH tunnel -> kubectl port-forward -> K3s Service -> Orders.Api pod 1/2
+    +-> SSH tunnel -> kubectl port-forward -> K3s Service -> Orders.Api Rollout (3-5 pods, canary + HPA)
                                                         |
                                                         +-> PostgreSQL (order + outbox)
                                                         |
                                                         +-> Redis (order read cache)
                                                         |
-                                                        +-> Kafka orders.created.v1
+                                                        +-> Kafka orders.created.v1 (3 partitions, keyed by orderId)
                                                                   |
-                                                                  +-> Orders.Worker pod
-                                                                  |     |
-                                                                  |     +-> PostgreSQL Inbox
-                                                                  |     +-> Kafka orders.created.dlq.v1
+                                                                  +-> Orders.Worker (1-3 pods, KEDA-scaled on consumer lag)
+                                                                        |
+                                                                        +-> orders-worker consumer -> PostgreSQL Inbox, order creation
+                                                                        +-> orders-projector consumer -> order_summaries read model (CQRS)
+                                                                        +-> payments-result consumer -> order status, cache invalidation
                                                                   |
                                                                   +-> Payments.Service pod
                                                                         |
                                                                         +-> PostgreSQL (payments + outbox, own database)
                                                                         +-> Kafka payments.result.v1
                                                                               |
-                                                                              +-> Orders.Worker pod (payment-result consumer)
-                                                                                    |
-                                                                                    +-> PostgreSQL order status (Confirmed/Cancelled)
-                                                                                    +-> Redis (cache invalidation)
+                                                                              +-> Orders.Worker (payments-result + projector consumers, above)
 
-K3s applications -> OTLP -> OpenTelemetry Collector -> Prometheus (metrics)
+Argo CD -> reconciles kubernetes/overlays/local from this repo's main branch
+Argo Rollouts -> canary strategy for orders-api, gated by an AnalysisTemplate
+KEDA -> ScaledObject watching Kafka consumer-group lag for orders-worker
+
+K3s applications -> OTLP -> OpenTelemetry Collector -> Prometheus (metrics, SLO recording/alert rules)
                                                     |-> Tempo (traces)
                                                     +-> Loki (logs)
 
+Prometheus -> Alertmanager (burn-rate alert routing, grouping, resolution)
 Prometheus + Tempo + Loki -> Grafana
 ```
 
-K3s reaches the Compose infrastructure through a dedicated internal Docker bridge. Selectorless Kubernetes Services and EndpointSlices provide stable in-cluster names for PostgreSQL, Kafka, Redis, and the OpenTelemetry Collector. The bridge is not published on the host.
+K3s reaches the Compose infrastructure through a dedicated internal Docker bridge. Selectorless Kubernetes Services and EndpointSlices provide stable in-cluster names for PostgreSQL, Kafka (two listeners — one for in-namespace application traffic, one advertised via fully-qualified name for cross-namespace clients like KEDA and Argo Rollouts), Redis, Prometheus, and the OpenTelemetry Collector. The bridge is not published on the host.
 
-PostgreSQL, Kafka, Redis, Tempo, Loki, and the Collector have no host ports. Kafka UI, Prometheus, and Grafana bind only to server loopback. The Orders API is exposed temporarily through `kubectl port-forward`, also bound to loopback, and all Mac access uses SSH port forwarding.
+PostgreSQL, Kafka, Redis, Tempo, Loki, and the Collector have no host ports. Kafka UI, Prometheus, Alertmanager, and Grafana bind only to server loopback. The Orders API is exposed temporarily through `kubectl port-forward`, also bound to loopback, and all Mac access uses SSH port forwarding.
 
 ## Repository layout
 
@@ -58,10 +74,11 @@ PostgreSQL, Kafka, Redis, Tempo, Loki, and the Collector have no host ports. Kaf
 - `docs/performance`: versioned baseline reports and interpretation notes.
 - `docs/resilience`: reviewed autoscaling and controlled-failure reports.
 - `docs/saga`: reviewed choreographed-saga convergence and chaos reports.
-- `kubernetes/base`: reusable application, migration, health, security, resource, and network-policy manifests.
+- `kubernetes/base`: reusable application (including the `orders-api` Rollout and its `AnalysisTemplate`), migration Jobs (Argo CD `PreSync` hooks), health, security, resource, network-policy, HPA, and KEDA `ScaledObject` manifests.
 - `kubernetes/overlays/local`: the K3s-to-Compose endpoints and local image policy.
+- `kubernetes/argocd`: the bootstrap `Application` resource — applied once, imperatively, to tell Argo CD about this repo; everything else it manages reconciles from git afterward.
 - `load-tests/k6`: versioned workload behavior, profiles, and thresholds.
-- `observability`: Collector, Prometheus, Tempo, Loki, and provisioned Grafana configuration.
+- `observability`: Collector, Prometheus (including SLO recording/alerting rules under `prometheus/rules`), Alertmanager, Tempo, Loki, and provisioned Grafana configuration.
 - `scripts`: repeatable image, deployment, access, and verification workflows.
 
 ## Configure local secrets
@@ -111,29 +128,32 @@ Do not run the Compose application profile concurrently with K3s during normal o
 
 ## Deploy the applications to K3s
 
-Build the application images and import them into the K3s containerd image store:
+Since Milestone 15, [Argo CD](https://argo-cd.readthedocs.io) reconciles `kubernetes/overlays/local` directly from this repo's `main` branch — the normal way to change anything it manages (`orders-api`'s Rollout, `orders-worker`, `payments-service`, the HPA, the KEDA `ScaledObject`, network policies, migration hook Jobs) is `git commit && git push`, not `kubectl apply`. Argo CD's `selfHeal` will actively revert a manual `kubectl` change back to whatever git currently says, so treat that as a hard rule, not a suggestion:
+
+```bash
+git push
+kubectl annotate application local-distributed-lab -n argocd argocd.argoproj.io/refresh=hard --overwrite  # optional: sync immediately instead of waiting out the poll interval
+kubectl get application local-distributed-lab -n argocd   # expect Synced / Healthy
+```
+
+`scripts/k3s-deploy.sh` still exists for everything Argo CD deliberately doesn't manage — provisioning the `orders-runtime` Secret from the resolved Compose configuration (never committed to git), and building/importing application images into the K3s containerd store — and remains the bootstrap path for a fresh cluster:
 
 ```bash
 cd /srv/local-distributed-lab
-scripts/k3s-build-images.sh
+scripts/k3s-build-images.sh   # build the three application images and import them into containerd
+scripts/k3s-deploy.sh         # provision the Secret, then apply everything (safe even once Argo CD also manages it - same desired state)
 ```
 
-The import uses the official K3s image as a short-lived, network-isolated Docker client with access only to the K3s containerd socket. It does not require `sudo`, change the host configuration, or publish an image registry.
-
-Apply the namespace, runtime Secret, bridge endpoints, migration Job, two minimum API replicas, CPU-based HPA, Worker, Service, PodDisruptionBudget, and NetworkPolicies:
-
-```bash
-scripts/k3s-deploy.sh
-```
-
-The deployment waits for infrastructure connectivity, database migration, and both application rollouts before stopping the legacy Compose API, Worker, and Nginx containers. Persistent infrastructure and volumes remain untouched.
+The image import uses the official K3s image as a short-lived, network-isolated Docker client with access only to the K3s containerd socket. It does not require `sudo`, change the host configuration, or publish an image registry.
 
 Inspect the runtime:
 
 ```bash
 kubectl get pods,services,endpointslices -n orders-lab -o wide
+kubectl get rollout orders-api -n orders-lab
+kubectl get hpa,scaledobject -n orders-lab
 kubectl logs -n orders-lab deployment/orders-worker --follow
-kubectl describe deployment/orders-api -n orders-lab
+kubectl describe rollout/orders-api -n orders-lab
 ```
 
 Run the end-to-end verification:
@@ -142,11 +162,11 @@ Run the end-to-end verification:
 scripts/k3s-smoke-test.sh
 ```
 
-The test verifies two Ready API replicas, order creation and retrieval, Worker consumption, correlation propagation, and Loki ingestion. A service port-forward selects one backend pod, so replica readiness is validated independently through the Deployment status and Kubernetes health probes.
+The test verifies every desired `orders-api` replica is Ready (the exact count varies — the HPA scales it between 3 and 5), order creation and retrieval, Worker consumption, correlation propagation, and Loki ingestion. A service port-forward selects one backend pod, so replica readiness is validated independently through the Rollout status and Kubernetes health probes.
 
 ## Performance testing
 
-The k6 workload runs on the Ubuntu server directly against the Orders API ClusterIP. This exercises the real Kubernetes Service and both API replicas without publishing a port or measuring SSH tunnel overhead.
+The k6 workload runs on the Ubuntu server directly against the Orders API ClusterIP. This exercises the real Kubernetes Service and all API replicas without publishing a port or measuring SSH tunnel overhead.
 
 Available profiles:
 
@@ -171,9 +191,9 @@ scripts/hpa-test.sh
 scripts/resilience-test.sh
 ```
 
-The runner verifies Kubernetes readiness and zero pre-existing Kafka lag, captures PostgreSQL and Prometheus counters, samples pod CPU and memory every two seconds, waits for Inbox/Outbox convergence, and reports per-pod API distribution. The HPA test requires scale-up above two replicas and a return to the minimum. The resilience test performs only rolling restarts, requires zero HTTP failures, and verifies the Worker's graceful-shutdown log in Loki.
+The runner verifies Kubernetes readiness and zero pre-existing Kafka lag, captures PostgreSQL and Prometheus counters, samples pod CPU and memory every two seconds, waits for Inbox/Outbox convergence, and reports per-pod API distribution. The HPA test requires scale-up above the HPA's own minimum replica count (read dynamically, not hardcoded — it has changed across milestones) and a return to that minimum afterward. The resilience test performs only rolling restarts, requires zero HTTP failures, and verifies the Worker's graceful-shutdown log in Loki.
 
-The API HPA targets 60% of its CPU request, keeps 2 to 4 replicas, scales up promptly, and uses a conservative 60-second scale-down window. API pods wait five seconds in a `preStop` hook before receiving SIGTERM so terminating endpoints can drain during a rollout.
+The API HPA targets 60% of its CPU request, keeps 3 to 5 replicas (raised from an original 2-4 once Milestone 13's write-side load needed the extra headroom), scales up promptly, and uses a conservative 60-second scale-down window. API pods wait five seconds in a `preStop` hook before receiving SIGTERM so terminating endpoints can drain during a rollout. `orders-worker` scales separately — 1 to 3 replicas via KEDA, driven by Kafka consumer-group lag rather than CPU; see [Kafka partitioning + KEDA autoscaling](#kafka-partitioning--keda-autoscaling).
 
 Raw output is written under ignored `artifacts/k6/`; reviewed results are documented in `docs/performance/milestone-7-baseline.md` and `docs/resilience/milestone-8-autoscaling-resilience.md`.
 
@@ -206,6 +226,16 @@ ssh \
 - Grafana: `http://127.0.0.1:3000`
 - Prometheus: `http://127.0.0.1:9090`
 
+Argo CD's UI isn't part of the Compose-loopback set above (it's a cluster add-on, not a Compose service) — reach it the same way as the Orders API, via its own `kubectl port-forward`:
+
+```bash
+ssh -L 8443:127.0.0.1:8443 \
+  itagyba@192.168.15.10 \
+  kubectl port-forward --namespace argocd service/argocd-server 8443:443
+```
+
+Then open `https://127.0.0.1:8443` (self-signed certificate) and log in as `admin` with the password from `kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d`. Alertmanager (`http://alertmanager:9093` inside the cluster/Compose network) does not currently have a working host-loopback port due to a Docker networking quirk on this setup — see `docs/slo/milestone-16-slo-burn-rate-alerting.md` — so reach it via `docker compose exec grafana curl http://alertmanager:9093/api/v2/alerts` instead.
+
 Keep these SSH sessions open while using the interfaces. No service is exposed to the LAN or Internet.
 
 ## API example
@@ -237,7 +267,7 @@ The provisioned Grafana dashboard is in the `Distributed Systems Lab` folder. Tr
 
 ## Delivery guarantees
 
-The API writes the order and its `OrderCreated` Outbox message in the same PostgreSQL transaction. Two API replicas safely poll pending messages with `FOR UPDATE SKIP LOCKED`. Failed Kafka publishes remain durable and use capped exponential backoff.
+The API writes the order and its `OrderCreated` Outbox message in the same PostgreSQL transaction. Multiple API replicas safely poll pending messages concurrently with `FOR UPDATE SKIP LOCKED`. Failed Kafka publishes remain durable and use capped exponential backoff.
 
 Kafka delivery remains at least once. Before committing an offset, the Worker deduplicates by `(consumer_name, event_id)` in the PostgreSQL Inbox. Topic, partition, and offset are retained in a non-unique diagnostic index, so a local Kafka topic can be recreated without causing a new event at a reused offset to be discarded. Processing failures are retried three times and then published to `orders.created.dlq.v1`; PostgreSQL or DLQ publication failures leave the source offset uncommitted.
 

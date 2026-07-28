@@ -29,6 +29,7 @@ spec:
       labels:
         app.kubernetes.io/name: orders-api
         app.kubernetes.io/component: api
+        app.kubernetes.io/part-of: local-distributed-lab
       annotations:
         linkerd.io/inject: enabled
     spec:

@@ -18,6 +18,7 @@ spec:
       labels:
         app.kubernetes.io/name: payments-service
         app.kubernetes.io/component: worker
+        app.kubernetes.io/part-of: local-distributed-lab
       annotations:
         linkerd.io/inject: enabled
     spec:

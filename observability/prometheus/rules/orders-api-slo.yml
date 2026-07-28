@@ -1,0 +1,91 @@
+# SLO: 99.5% of orders-api requests succeed (non-5xx) over a rolling 30-day
+# window - a 0.5% error budget. Multi-window, multi-burn-rate alerting per
+# the Google SRE workbook: two windows of different lengths must BOTH show
+# an elevated burn rate before an alert fires, which is what makes this more
+# reliable than a single-window threshold - a single short spike burns the
+# short window instantly but barely moves the long one, so it can't page on
+# its own, and a real sustained problem shows up in both.
+#
+# Burn rate = observed error ratio / (1 - SLO target). A burn rate of 1 means
+# "consuming the 30-day budget exactly on schedule"; 14.4 means "exhausting
+# it in about 2 hours if sustained."
+#
+# The "page" and "ticket" rules use the textbook window pairs (5m/1h,
+# 30m/6h) and are the rules meant to run for real. The "demo" rule is the
+# same 5m/1h math on 30s/2m windows instead, purely so the alerting pipeline
+# (recording rules -> burn rate -> firing -> resolved) can be validated
+# end-to-end within a short chaos experiment rather than requiring an actual
+# sustained hour of induced failures - see docs/slo/milestone-16-slo-burn-rate-alerting.md.
+groups:
+  - name: orders-api-slo-recording
+    interval: 15s
+    rules:
+      - record: orders_api:requests:rate30s
+        expr: sum(rate(http_server_request_duration_seconds_count{service_name="orders-api"}[30s]))
+      - record: orders_api:requests_failed:rate30s
+        expr: sum(rate(http_server_request_duration_seconds_count{service_name="orders-api", http_response_status_code=~"5.."}[30s]))
+      - record: orders_api:requests:rate2m
+        expr: sum(rate(http_server_request_duration_seconds_count{service_name="orders-api"}[2m]))
+      - record: orders_api:requests_failed:rate2m
+        expr: sum(rate(http_server_request_duration_seconds_count{service_name="orders-api", http_response_status_code=~"5.."}[2m]))
+      - record: orders_api:requests:rate5m
+        expr: sum(rate(http_server_request_duration_seconds_count{service_name="orders-api"}[5m]))
+      - record: orders_api:requests_failed:rate5m
+        expr: sum(rate(http_server_request_duration_seconds_count{service_name="orders-api", http_response_status_code=~"5.."}[5m]))
+      - record: orders_api:requests:rate30m
+        expr: sum(rate(http_server_request_duration_seconds_count{service_name="orders-api"}[30m]))
+      - record: orders_api:requests_failed:rate30m
+        expr: sum(rate(http_server_request_duration_seconds_count{service_name="orders-api", http_response_status_code=~"5.."}[30m]))
+      - record: orders_api:requests:rate1h
+        expr: sum(rate(http_server_request_duration_seconds_count{service_name="orders-api"}[1h]))
+      - record: orders_api:requests_failed:rate1h
+        expr: sum(rate(http_server_request_duration_seconds_count{service_name="orders-api", http_response_status_code=~"5.."}[1h]))
+      - record: orders_api:requests:rate6h
+        expr: sum(rate(http_server_request_duration_seconds_count{service_name="orders-api"}[6h]))
+      - record: orders_api:requests_failed:rate6h
+        expr: sum(rate(http_server_request_duration_seconds_count{service_name="orders-api", http_response_status_code=~"5.."}[6h]))
+
+      # Error ratio per window, always exactly one series (falls back to 0/1
+      # rather than "no data" when a window has no traffic yet - the same
+      # empty-vector-division gotcha fixed in Milestone 15's canary analysis).
+      - record: orders_api:error_ratio:rate30s
+        expr: (orders_api:requests_failed:rate30s or vector(0)) / (orders_api:requests:rate30s or vector(1))
+      - record: orders_api:error_ratio:rate2m
+        expr: (orders_api:requests_failed:rate2m or vector(0)) / (orders_api:requests:rate2m or vector(1))
+      - record: orders_api:error_ratio:rate5m
+        expr: (orders_api:requests_failed:rate5m or vector(0)) / (orders_api:requests:rate5m or vector(1))
+      - record: orders_api:error_ratio:rate30m
+        expr: (orders_api:requests_failed:rate30m or vector(0)) / (orders_api:requests:rate30m or vector(1))
+      - record: orders_api:error_ratio:rate1h
+        expr: (orders_api:requests_failed:rate1h or vector(0)) / (orders_api:requests:rate1h or vector(1))
+      - record: orders_api:error_ratio:rate6h
+        expr: (orders_api:requests_failed:rate6h or vector(0)) / (orders_api:requests:rate6h or vector(1))
+
+  - name: orders-api-slo-alerts
+    rules:
+      - alert: OrdersApiErrorBudgetBurnFast
+        expr: orders_api:error_ratio:rate5m > 0.072 and orders_api:error_ratio:rate1h > 0.072
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "orders-api is burning its 30-day error budget fast (5m and 1h windows both elevated)"
+          description: "5m error ratio {{ $labels.instance }} and 1h error ratio both exceed a 14.4x burn rate against the 99.5% SLO - at this rate the 30-day budget would be exhausted in about 2 hours."
+
+      - alert: OrdersApiErrorBudgetBurnSlow
+        expr: orders_api:error_ratio:rate30m > 0.03 and orders_api:error_ratio:rate6h > 0.03
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "orders-api is burning its 30-day error budget (30m and 6h windows both elevated)"
+          description: "30m and 6h error ratios both exceed a 6x burn rate against the 99.5% SLO - at this rate the 30-day budget would be exhausted in about 5 days."
+
+      - alert: OrdersApiErrorBudgetBurnDemo
+        expr: orders_api:error_ratio:rate30s > 0.072 and orders_api:error_ratio:rate2m > 0.072
+        for: 15s
+        labels:
+          severity: page
+        annotations:
+          summary: "[DEMO] orders-api burn-rate alert validation (30s/2m windows, not for production use)"
+          description: "Same 14.4x burn-rate math as OrdersApiErrorBudgetBurnFast, on short windows so the pipeline can be validated within a short chaos experiment instead of waiting out a real hour."

@@ -375,6 +375,23 @@ services:
     cpus: 0.25
     stop_grace_period: 10s
 
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ../observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    ports:
+      - "127.0.0.1:${ALERTMANAGER_PORT:-9093}:9093"
+    networks:
+      - backend
+    mem_limit: 64m
+    cpus: 0.25
+    stop_grace_period: 10s
+
   prometheus:
     image: prom/prometheus:v3.13.1
     restart: unless-stopped
@@ -386,6 +403,7 @@ services:
       - --web.enable-lifecycle
     volumes:
       - ../observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../observability/prometheus/rules:/etc/prometheus/rules:ro
       - prometheus-data:/prometheus
     ports:
       - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
@@ -393,6 +411,8 @@ services:
       otel-collector:
         condition: service_started
       node-exporter:
+        condition: service_started
+      alertmanager:
         condition: service_started
     networks:
       frontend:
@@ -452,4 +472,5 @@ volumes:
   tempo-data:
   loki-data:
   prometheus-data:
+  alertmanager-data:
   grafana-data:

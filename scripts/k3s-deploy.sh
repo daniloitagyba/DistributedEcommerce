@@ -57,7 +57,25 @@ kubectl create secret generic orders-runtime \
   --output yaml |
   kubectl apply --filename -
 
+# Kubernetes Jobs are immutable once created and never rerun just because the
+# image they reference changed underneath the same tag - unlike Deployments,
+# `kubectl apply` on an already-Completed Job is a silent no-op. Without this,
+# a schema change added after a migration Job's name was last bumped would
+# never actually apply; deleting first forces a fresh run every deploy, which
+# is safe because EF Core migrations are themselves idempotent.
+kubectl delete job orders-migrations-m7 payments-migrations-m12 \
+  --namespace "$namespace" --ignore-not-found
+
 kubectl apply --kustomize "$overlay_directory"
+
+# Deployments use a static image tag with imagePullPolicy: IfNotPresent, so
+# rebuilding an image under the same tag leaves the Pod template unchanged and
+# `kubectl apply` is a no-op - the already-running Pod keeps serving the old
+# image. Forcing a rollout restart every deploy ensures rebuilt code is always
+# picked up, mirroring the Job-recreation fix above for the same class of bug.
+kubectl rollout restart deployment/orders-api deployment/orders-worker deployment/payments-service \
+  --namespace "$namespace"
+
 kubectl wait \
   --namespace "$namespace" \
   --for=condition=complete \

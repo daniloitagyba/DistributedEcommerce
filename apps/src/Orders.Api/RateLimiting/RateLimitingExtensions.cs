@@ -29,6 +29,11 @@ public static class RateLimitingExtensions
             throw new InvalidOperationException("RateLimit replenishment period must be positive.");
         }
 
+        if (rateLimitOptions.QueueLimit < 0)
+        {
+            throw new InvalidOperationException("RateLimit queue limit must not be negative.");
+        }
+
         services.AddRateLimiter(options =>
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -37,7 +42,8 @@ public static class RateLimitingExtensions
                 bucket.TokenLimit = rateLimitOptions.TokenLimit;
                 bucket.TokensPerPeriod = rateLimitOptions.TokensPerPeriod;
                 bucket.ReplenishmentPeriod = TimeSpan.FromSeconds(rateLimitOptions.ReplenishmentPeriodSeconds);
-                bucket.QueueLimit = 0;
+                bucket.QueueLimit = rateLimitOptions.QueueLimit;
+                bucket.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
                 bucket.AutoReplenishment = true;
             });
 

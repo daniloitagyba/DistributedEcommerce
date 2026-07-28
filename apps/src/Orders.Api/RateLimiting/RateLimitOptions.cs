@@ -9,4 +9,6 @@ public sealed class RateLimitOptions
     public int TokensPerPeriod { get; init; } = 75;
 
     public int ReplenishmentPeriodSeconds { get; init; } = 1;
+
+    public int QueueLimit { get; init; } = 30;
 }

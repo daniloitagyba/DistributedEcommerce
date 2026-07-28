@@ -49,6 +49,8 @@ spec:
               value: orders-worker-k3s
             - name: PaymentResultKafka__BootstrapServers
               value: kafka:9092
+            - name: OrderProjectionKafka__BootstrapServers
+              value: kafka:9092
             - name: Redis__ConnectionString
               value: redis:6379
             - name: InstanceId
@@ -88,11 +90,11 @@ spec:
             failureThreshold: 3
           resources:
             requests:
-              cpu: 100m
-              memory: 96Mi
+              cpu: 200m
+              memory: 128Mi
             limits:
-              cpu: 500m
-              memory: 256Mi
+              cpu: 1000m
+              memory: 320Mi
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

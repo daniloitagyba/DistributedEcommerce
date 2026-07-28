@@ -783,6 +783,42 @@
       ],
       "title": "Saga: messages processed per service",
       "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 65 },
+      "id": 20,
+      "options": {
+        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le, event_type) (rate(orders_projection_lag_ms_bucket[2m])))",
+          "legendFormat": "p95 {{event_type}}",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.50, sum by (le, event_type) (rate(orders_projection_lag_ms_bucket[2m])))",
+          "legendFormat": "p50 {{event_type}}",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "CQRS: read-model projection lag",
+      "type": "timeseries"
     }
   ],
   "refresh": "10s",
@@ -805,5 +841,5 @@
   "timezone": "browser",
   "title": "Orders Lab Overview",
   "uid": "orders-lab-overview",
-  "version": 7
+  "version": 8
 }

@@ -6,14 +6,14 @@ using Npgsql;
 
 namespace Orders.Worker;
 
-public sealed class OrderCreatedConsumer(
-    IOptions<KafkaOptions> options,
+public sealed class OrderProjectionConsumer(
+    IOptions<OrderProjectionOptions> options,
     IOptions<MessageProcessingOptions> processingOptions,
-    OrderMessageProcessor processor,
-    IDeadLetterPublisher deadLetterPublisher,
-    ILogger<OrderCreatedConsumer> logger) : BackgroundService
+    OrderProjectionProcessor processor,
+    IOrderProjectionDeadLetterPublisher deadLetterPublisher,
+    ILogger<OrderProjectionConsumer> logger) : BackgroundService
 {
-    private readonly KafkaOptions _options = options.Value;
+    private readonly OrderProjectionOptions _options = options.Value;
     private readonly MessageProcessingOptions _processingOptions = processingOptions.Value;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -24,15 +24,16 @@ public sealed class OrderCreatedConsumer(
             GroupId = _options.ConsumerGroup,
             ClientId = _options.ClientId,
             AutoOffsetReset = AutoOffsetReset.Earliest,
-            EnableAutoCommit = false,
+            EnableAutoCommit = true,
+            AutoCommitIntervalMs = 1_000,
             EnableAutoOffsetStore = false,
             AllowAutoCreateTopics = false,
             SessionTimeoutMs = 10_000
         };
 
         using var consumer = new ConsumerBuilder<string, string>(config).Build();
-        consumer.Subscribe(_options.OrderCreatedTopic);
-        WorkerLog.Started(logger, _options.OrderCreatedTopic, _options.ConsumerGroup);
+        consumer.Subscribe([_options.OrderCreatedTopic, _options.PaymentResultTopic]);
+        WorkerLog.StartedMultiTopic(logger, _options.OrderCreatedTopic, _options.PaymentResultTopic, _options.ConsumerGroup);
 
         try
         {
@@ -59,7 +60,7 @@ public sealed class OrderCreatedConsumer(
 
                 try
                 {
-                    consumer.Commit(consumeResult);
+                    consumer.StoreOffset(consumeResult);
                 }
                 catch (KafkaException exception)
                 {
@@ -151,40 +152,4 @@ public sealed class OrderCreatedConsumer(
     {
         return Task.Delay(_processingOptions.InfrastructureRetryDelayMilliseconds, cancellationToken);
     }
-}
-
-public sealed partial class WorkerLog
-{
-    [LoggerMessage(EventId = 2000, Level = LogLevel.Information, Message = "Orders worker subscribed to topic {Topic} with consumer group {GroupId}")]
-    public static partial void Started(ILogger logger, string topic, string groupId);
-
-    [LoggerMessage(EventId = 2011, Level = LogLevel.Information, Message = "Orders worker subscribed to topics {TopicA} and {TopicB} with consumer group {GroupId}")]
-    public static partial void StartedMultiTopic(ILogger logger, string topicA, string topicB, string groupId);
-
-    [LoggerMessage(EventId = 2001, Level = LogLevel.Information, Message = "Orders worker is stopping gracefully")]
-    public static partial void Stopping(ILogger logger);
-
-    [LoggerMessage(EventId = 2002, Level = LogLevel.Information, Message = "Processed order {OrderId} from event {EventId} with correlation {CorrelationId}")]
-    public static partial void Processed(ILogger logger, Guid orderId, Guid eventId, string correlationId);
-
-    [LoggerMessage(EventId = 2003, Level = LogLevel.Error, Message = "Kafka consume failed: {Reason}")]
-    public static partial void ConsumeFailed(ILogger logger, string reason, Exception exception);
-
-    [LoggerMessage(EventId = 2005, Level = LogLevel.Information, Message = "Skipped duplicate event {EventId} for consumer {ConsumerName}")]
-    public static partial void Duplicate(ILogger logger, Guid eventId, string consumerName);
-
-    [LoggerMessage(EventId = 2006, Level = LogLevel.Warning, Message = "Processing at {Offset} failed on attempt {Attempt}; retrying in {DelayMilliseconds} ms")]
-    public static partial void RetryScheduled(ILogger logger, string offset, int attempt, double delayMilliseconds, Exception exception);
-
-    [LoggerMessage(EventId = 2007, Level = LogLevel.Error, Message = "Moved message at {Offset} to {DeadLetterTopic} after {AttemptCount} attempts")]
-    public static partial void DeadLettered(ILogger logger, string offset, string deadLetterTopic, int attemptCount);
-
-    [LoggerMessage(EventId = 2008, Level = LogLevel.Error, Message = "Infrastructure failure while processing message at {Offset}; offset remains uncommitted")]
-    public static partial void InfrastructureFailure(ILogger logger, string offset, Exception exception);
-
-    [LoggerMessage(EventId = 2009, Level = LogLevel.Error, Message = "Failed to publish message at {Offset} to the dead-letter topic; offset remains uncommitted")]
-    public static partial void DeadLetterFailed(ILogger logger, string offset, Exception exception);
-
-    [LoggerMessage(EventId = 2010, Level = LogLevel.Warning, Message = "Failed to commit Kafka offset {Offset}; Inbox will prevent duplicate processing")]
-    public static partial void CommitFailed(ILogger logger, string offset, Exception exception);
 }

@@ -22,6 +22,7 @@ public static class OrdersTelemetry
     private static readonly Counter<long> CacheBypassCounter = Meter.CreateCounter<long>("orders.cache.bypassed");
     private static readonly Counter<long> RateLimitedCounter = Meter.CreateCounter<long>("orders.rate_limited");
     private static readonly Counter<long> PaymentDecidedCounter = Meter.CreateCounter<long>("payments.decided");
+    private static readonly Histogram<double> ProjectionLagHistogram = Meter.CreateHistogram<double>("orders.projection.lag_ms");
 
     public static Activity? StartActivity(
         string name,
@@ -96,5 +97,10 @@ public static class OrdersTelemetry
     public static void RecordPaymentDecided(bool approved)
     {
         PaymentDecidedCounter.Add(1, new KeyValuePair<string, object?>("approved", approved));
+    }
+
+    public static void RecordProjectionLag(string eventType, TimeSpan lag)
+    {
+        ProjectionLagHistogram.Record(lag.TotalMilliseconds, new KeyValuePair<string, object?>("event.type", eventType));
     }
 }

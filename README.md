@@ -1,6 +1,6 @@
 # Local Distributed Systems Lab
 
-This repository is a practical distributed systems laboratory running on an Ubuntu server. Milestone 12 adds a second service, **Payments.Service**, and a real choreographed saga: orders are approved or declined by an independent service with its own database, coordinating purely through Kafka events.
+This repository is a practical distributed systems laboratory running on an Ubuntu server. Milestone 13 adds CQRS read projections: a third, independent Kafka consumer builds a denormalized read model from the same events, and a new endpoint serves reads from it exclusively — measuring projection lag as a first-class metric instead of assuming eventual consistency is instant.
 
 ## Architecture
 
@@ -45,11 +45,12 @@ PostgreSQL, Kafka, Redis, Tempo, Loki, and the Collector have no host ports. Kaf
 
 - `apps/src/BuildingBlocks`: event contracts, shared OpenTelemetry instrumentation, shared Redis wiring, the Polly resilience pipelines, and the shared retry-delay calculator.
 - `apps/src/Orders.Api`: order API, PostgreSQL persistence, transactional Outbox, migrations, Kafka producer, the Redis cache-aside layer, and token-bucket rate limiting, all wrapped with resilience pipelines.
-- `apps/src/Orders.Worker`: idempotent Kafka consumers (order creation and payment results), PostgreSQL Inbox, order status transitions, cache invalidation, bounded retries, and DLQ publishers, all wrapped with resilience pipelines.
+- `apps/src/Orders.Worker`: idempotent Kafka consumers (order creation, payment results, and the CQRS read-model projector), PostgreSQL Inbox, order status transitions, cache invalidation, bounded retries, and DLQ publishers, all wrapped with resilience pipelines.
 - `apps/src/Payments.Service`: independent payment-decision service with its own PostgreSQL database, transactional Outbox, and Kafka consumer/producer — the choreographed saga's second participant.
 - `apps/tests`: unit tests and PostgreSQL/Redis Testcontainers integration tests.
 - `compose`: external infrastructure, Toxiproxy for fault injection, and the optional legacy Compose application profile.
 - `docs/caching`: reviewed Redis cache-aside and invalidation reports.
+- `docs/cqrs`: reviewed read-projection and projection-lag reports.
 - `docs/load-shedding`: reviewed rate-limiting and overload reports.
 - `docs/performance`: versioned baseline reports and interpretation notes.
 - `docs/resilience`: reviewed autoscaling and controlled-failure reports.
@@ -269,4 +270,10 @@ Tuning this required two real fixes, documented in `docs/load-shedding/milestone
 
 `scripts/k6-run.sh saga` proves convergence (100% of orders reach a terminal state, 100% match the expected outcome, ~750 ms average). `scripts/saga-chaos-test.sh` proves the failure story: killing Payments.Service mid-flight never fails order creation (orders simply stay `Created`, no partial state), and every order converges correctly once it recovers. See `docs/saga/milestone-12-payments-saga.md` for the full results, including three real operational bugs found (and fixed) by actually running this against the live deployment rather than trusting it on paper.
 
-The next milestone can add CQRS read projections over these events, measuring how far the read model lags behind the write side under load.
+## CQRS read projections
+
+`order_summaries` is a denormalized read model built by a third, independent Kafka consumer inside Orders.Worker (`OrderProjectionConsumer`, consumer group `orders-projector`), subscribed to both `orders.created.v1` and `payments.result.v1` on its own group — separate Inbox entries, separate DLQ (`orders.projection.dlq.v1`), no code shared with the write-side consumers beyond the same base patterns. `GET /orders/summary?status=&limit=` (`OrderSummaryEndpoints`) reads exclusively from this projection: no `IOrderCache`, no `orders` table, nothing shared with the command side except the underlying event log that built it.
+
+Because the projector's two source topics have no ordering guarantee relative to each other, a `PaymentDecided` event can reach it before the corresponding `OrderCreated` projection exists. `order_summaries` handles this with nullable columns and `INSERT ... ON CONFLICT DO UPDATE` on both write paths, so an out-of-order arrival is absorbed rather than lost or clobbered — covered directly by an integration test. Every projection write records **projection lag** (`orders.projection.lag_ms`, wall-clock time from the underlying event's timestamp to the read model reflecting it) as an OpenTelemetry histogram, graphed on the dashboard and asserted by `scripts/projection-lag-test.sh` — which deliberately reuses Milestone 8's unmodified `autoscale` profile as load, so measuring the read side carries no regression risk to an already-validated acceptance suite. See `docs/cqrs/milestone-13-read-projections.md` for the measured numbers, including the same "Kubernetes Job never reruns" bug from Milestone 12 recurring in a new form (a schema migration silently never applied) and the general fix this time: delete-and-recreate the migration Jobs on every deploy instead of hoping to remember to rename them.
+
+The next milestone can partition `orders.created.v1` and scale the Worker with KEDA based on consumer-group lag instead of CPU, contrasting with Milestone 8's CPU-based HPA.

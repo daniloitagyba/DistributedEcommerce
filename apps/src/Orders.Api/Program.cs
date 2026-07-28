@@ -112,6 +112,7 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
 
 app.MapGet("/", () => Results.Ok(new { service = "Orders.Api", instanceId }));
 app.MapOrderEndpoints();
+app.MapOrderSummaryEndpoints();
 
 await app.RunAsync();
 

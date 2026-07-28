@@ -12,11 +12,14 @@ public sealed class OrdersDbContext(DbContextOptions<OrdersDbContext> options) :
 
     public DbSet<InboxMessage> InboxMessages => Set<InboxMessage>();
 
+    public DbSet<OrderSummary> OrderSummaries => Set<OrderSummary>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ConfigureOrder(modelBuilder);
         ConfigureOutbox(modelBuilder);
         ConfigureInbox(modelBuilder);
+        ConfigureOrderSummary(modelBuilder);
     }
 
     private static void ConfigureOrder(ModelBuilder modelBuilder)
@@ -72,6 +75,24 @@ public sealed class OrdersDbContext(DbContextOptions<OrdersDbContext> options) :
             .HasDatabaseName("ix_inbox_messages_source_position");
         inbox.HasIndex(item => item.ProcessedAt)
             .HasDatabaseName("ix_inbox_messages_processed_at");
+    }
+
+    private static void ConfigureOrderSummary(ModelBuilder modelBuilder)
+    {
+        var summary = modelBuilder.Entity<OrderSummary>();
+
+        summary.ToTable("order_summaries");
+        summary.HasKey(item => item.OrderId);
+        summary.Property(item => item.OrderId).HasColumnName("order_id").ValueGeneratedNever();
+        summary.Property(item => item.CustomerId).HasColumnName("customer_id").HasMaxLength(100);
+        summary.Property(item => item.Amount).HasColumnName("amount").HasPrecision(18, 2);
+        summary.Property(item => item.Currency).HasColumnName("currency").HasMaxLength(3);
+        summary.Property(item => item.Status).HasColumnName("status").HasMaxLength(32).IsRequired();
+        summary.Property(item => item.OrderCreatedAt).HasColumnName("order_created_at");
+        summary.Property(item => item.DecidedAt).HasColumnName("decided_at");
+        summary.Property(item => item.ProjectedAt).HasColumnName("projected_at").IsRequired();
+        summary.HasIndex(item => new { item.Status, item.OrderCreatedAt })
+            .HasDatabaseName("ix_order_summaries_status");
     }
 }
 

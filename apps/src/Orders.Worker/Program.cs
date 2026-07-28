@@ -39,6 +39,14 @@ builder.Services.AddOptions<PaymentResultKafkaOptions>()
     .Validate(options => !string.IsNullOrWhiteSpace(options.DeadLetterTopic), "Kafka dead-letter topic is required.")
     .Validate(options => !string.IsNullOrWhiteSpace(options.ConsumerGroup), "Kafka consumer group is required.")
     .ValidateOnStart();
+builder.Services.AddOptions<OrderProjectionOptions>()
+    .Bind(builder.Configuration.GetSection(OrderProjectionOptions.SectionName))
+    .Validate(options => !string.IsNullOrWhiteSpace(options.BootstrapServers), "Kafka bootstrap servers are required.")
+    .Validate(options => !string.IsNullOrWhiteSpace(options.OrderCreatedTopic), "Order-created topic is required.")
+    .Validate(options => !string.IsNullOrWhiteSpace(options.PaymentResultTopic), "Payment result topic is required.")
+    .Validate(options => !string.IsNullOrWhiteSpace(options.DeadLetterTopic), "Kafka dead-letter topic is required.")
+    .Validate(options => !string.IsNullOrWhiteSpace(options.ConsumerGroup), "Kafka consumer group is required.")
+    .ValidateOnStart();
 
 var connectionString = builder.Configuration.GetConnectionString("Orders")
     ?? throw new InvalidOperationException("Connection string 'Orders' is required.");
@@ -48,6 +56,8 @@ builder.Services.AddSingleton<InboxStore>();
 builder.Services.AddSingleton<OrderStatusStore>();
 builder.Services.AddSingleton<OrderMessageProcessor>();
 builder.Services.AddSingleton<PaymentResultProcessor>();
+builder.Services.AddSingleton<OrderProjectionStore>();
+builder.Services.AddSingleton<OrderProjectionProcessor>();
 builder.Services.AddOrdersRedis(builder.Configuration);
 builder.Services.AddSingleton<IOrderCacheInvalidator, RedisOrderCacheInvalidator>();
 
@@ -74,8 +84,10 @@ builder.Services.AddSingleton<IAdminClient>(serviceProvider =>
 });
 builder.Services.AddSingleton<IDeadLetterPublisher, KafkaDeadLetterPublisher>();
 builder.Services.AddSingleton<IPaymentResultDeadLetterPublisher, PaymentResultDeadLetterPublisher>();
+builder.Services.AddSingleton<IOrderProjectionDeadLetterPublisher, OrderProjectionDeadLetterPublisher>();
 builder.Services.AddHostedService<OrderCreatedConsumer>();
 builder.Services.AddHostedService<PaymentResultConsumer>();
+builder.Services.AddHostedService<OrderProjectionConsumer>();
 builder.Services.AddHealthChecks()
     .AddCheck<KafkaHealthCheck>("kafka", tags: ["ready"])
     .AddCheck<PostgresHealthCheck>("postgres", tags: ["ready"])

@@ -54,7 +54,7 @@ services:
       k3s-bridge:
         ipv4_address: 172.30.0.10
     mem_limit: 512m
-    cpus: 0.75
+    cpus: 1.5
     stop_grace_period: 30s
 
   kafka:
@@ -147,6 +147,7 @@ services:
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic payments.result.v1 --partitions 3 --replication-factor 1 --config retention.ms=86400000
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic payments.decisions.dlq.v1 --partitions 1 --replication-factor 1 --config retention.ms=86400000
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic payments.result.dlq.v1 --partitions 1 --replication-factor 1 --config retention.ms=86400000
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic orders.projection.dlq.v1 --partitions 1 --replication-factor 1 --config retention.ms=86400000
     networks:
       - backend
     mem_limit: 256m

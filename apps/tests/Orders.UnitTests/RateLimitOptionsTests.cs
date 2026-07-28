@@ -12,5 +12,6 @@ public sealed class RateLimitOptionsTests
         Assert.True(options.TokenLimit > 0);
         Assert.True(options.TokensPerPeriod > 0);
         Assert.True(options.ReplenishmentPeriodSeconds > 0);
+        Assert.True(options.QueueLimit >= 0);
     }
 }

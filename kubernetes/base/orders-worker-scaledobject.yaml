@@ -1,0 +1,60 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: orders-worker
+  labels:
+    app.kubernetes.io/name: orders-worker
+    app.kubernetes.io/component: worker
+spec:
+  scaleTargetRef:
+    name: orders-worker
+  minReplicaCount: 1
+  maxReplicaCount: 3
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          policies:
+            - type: Pods
+              value: 3
+              periodSeconds: 15
+        scaleDown:
+          stabilizationWindowSeconds: 60
+          policies:
+            - type: Pods
+              value: 1
+              periodSeconds: 30
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: kafka.orders-lab.svc.cluster.local:9094
+        consumerGroup: orders-worker
+        topic: orders.created.v1
+        lagThreshold: "50"
+        activationLagThreshold: "10"
+        offsetResetPolicy: latest
+    - type: kafka
+      metadata:
+        bootstrapServers: kafka.orders-lab.svc.cluster.local:9094
+        consumerGroup: orders-worker-payments-result
+        topic: payments.result.v1
+        lagThreshold: "50"
+        activationLagThreshold: "10"
+        offsetResetPolicy: latest
+    - type: kafka
+      metadata:
+        bootstrapServers: kafka.orders-lab.svc.cluster.local:9094
+        consumerGroup: orders-projector
+        topic: orders.created.v1
+        lagThreshold: "50"
+        activationLagThreshold: "10"
+        offsetResetPolicy: latest
+    - type: kafka
+      metadata:
+        bootstrapServers: kafka.orders-lab.svc.cluster.local:9094
+        consumerGroup: orders-projector
+        topic: payments.result.v1
+        lagThreshold: "50"
+        activationLagThreshold: "10"
+        offsetResetPolicy: latest

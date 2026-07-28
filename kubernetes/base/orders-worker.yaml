@@ -9,7 +9,10 @@ spec:
   replicas: 1
   revisionHistoryLimit: 2
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: orders-worker

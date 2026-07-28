@@ -7,6 +7,7 @@ resources:
   - orders-api.yaml
   - orders-api-hpa.yaml
   - orders-worker.yaml
+  - orders-worker-scaledobject.yaml
   - migration-job.yaml
   - payments-service.yaml
   - payments-migration-job.yaml

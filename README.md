@@ -1,6 +1,6 @@
 # Local Distributed Systems Lab
 
-This repository is a practical distributed systems laboratory running on an Ubuntu server. Milestone 13 adds CQRS read projections: a third, independent Kafka consumer builds a denormalized read model from the same events, and a new endpoint serves reads from it exclusively — measuring projection lag as a first-class metric instead of assuming eventual consistency is instant.
+This repository is a practical distributed systems laboratory running on an Ubuntu server. Milestone 14 makes `orders-worker` horizontally scalable and drives that scaling from Kafka consumer-group lag via KEDA, instead of the CPU-based approach `orders-api` uses.
 
 ## Architecture
 
@@ -51,6 +51,7 @@ PostgreSQL, Kafka, Redis, Tempo, Loki, and the Collector have no host ports. Kaf
 - `compose`: external infrastructure, Toxiproxy for fault injection, and the optional legacy Compose application profile.
 - `docs/caching`: reviewed Redis cache-aside and invalidation reports.
 - `docs/cqrs`: reviewed read-projection and projection-lag reports.
+- `docs/scaling`: reviewed Kafka-partitioning and KEDA autoscaling reports.
 - `docs/load-shedding`: reviewed rate-limiting and overload reports.
 - `docs/performance`: versioned baseline reports and interpretation notes.
 - `docs/resilience`: reviewed autoscaling and controlled-failure reports.
@@ -276,4 +277,10 @@ Tuning this required two real fixes, documented in `docs/load-shedding/milestone
 
 Because the projector's two source topics have no ordering guarantee relative to each other, a `PaymentDecided` event can reach it before the corresponding `OrderCreated` projection exists. `order_summaries` handles this with nullable columns and `INSERT ... ON CONFLICT DO UPDATE` on both write paths, so an out-of-order arrival is absorbed rather than lost or clobbered — covered directly by an integration test. Every projection write records **projection lag** (`orders.projection.lag_ms`, wall-clock time from the underlying event's timestamp to the read model reflecting it) as an OpenTelemetry histogram, graphed on the dashboard and asserted by `scripts/projection-lag-test.sh` — which deliberately reuses Milestone 8's unmodified `autoscale` profile as load, so measuring the read side carries no regression risk to an already-validated acceptance suite. See `docs/cqrs/milestone-13-read-projections.md` for the measured numbers, including the same "Kubernetes Job never reruns" bug from Milestone 12 recurring in a new form (a schema migration silently never applied) and the general fix this time: delete-and-recreate the migration Jobs on every deploy instead of hoping to remember to rename them.
 
-The next milestone can partition `orders.created.v1` and scale the Worker with KEDA based on consumer-group lag instead of CPU, contrasting with Milestone 8's CPU-based HPA.
+## Kafka partitioning + KEDA autoscaling
+
+`orders-worker` had no horizontal scaling of its own through Milestone 13 — a single fixed replica ran all three consumer groups regardless of load. Both `orders.created.v1` and `payments.result.v1` already had 3 partitions and were already keyed by `OrderId` (in place since Milestone 7), so the missing piece was purely a consumer side able to use more than one partition: the Deployment's `Recreate` strategy (which assumed a singleton) became `RollingUpdate`, and a [KEDA](https://keda.sh) `ScaledObject` now scales `orders-worker` from 1 to 3 replicas based on the *maximum* Kafka consumer-group lag across all three groups the worker runs (`orders-worker`, `orders-worker-payments-result`, `orders-projector`) — contrasting directly with `orders-api`'s CPU-based HPA from Milestone 8. No consumer code needed to change: all three groups already dedup through the database-backed `InboxStore` rather than in-memory state, so Kafka's own rebalancing protocol safely redistributes partitions across however many replicas KEDA decides to run.
+
+Getting KEDA to actually read consumer-group lag surfaced a real cross-namespace Kafka gotcha: the KEDA operator runs outside the `orders-lab` namespace, so the short hostname (`kafka:9092`) every application pod already uses doesn't resolve for it, and worse, Kafka's own advertised-listener metadata redirects any client back to that short name after the first connection regardless of which bootstrap address it used. The fix was a second Kafka listener (port 9094, advertised via the fully-qualified `kafka.orders-lab.svc.cluster.local`) reserved for cross-namespace clients like KEDA, while every existing consumer and producer keeps using the original listener, untouched. See `docs/scaling/milestone-14-partitioning-keda.md` for the measured scale-up/scale-down timeline (1 → 3 replicas within ~30 seconds of load, back down to 1 over ~78 seconds after load stops) reusing Milestone 8's unmodified `autoscale` profile as load.
+
+The next milestone can bring GitOps and progressive delivery — reconciling `kubernetes/` from Git instead of `kubectl apply` from a laptop, with an automated canary and rollback demonstrated against a deliberately broken deploy.

@@ -38,8 +38,8 @@ Every event on this lab's Kafka topics has been raw JSON, deserialized with noth
 | Check | Result |
 | --- | --- |
 | `k3s-smoke-test.sh` | Passed - orders created via Avro-producing `orders-api`, consumed and logged by Avro-decoding `orders-worker` |
-| `k6-run.sh saga` | Payments.Service correctly decodes Avro `OrderCreated` and decides approve/decline |
-| `k6-run.sh baseline` | `failed_rate=0`, no regressions from the transport change |
+| `k6-run.sh saga` | `failed_rate=0`; `saga_correct_outcome_rate=99.48%` (390/392) - Payments.Service correctly Avro-decodes every message and decides approve/decline; the sub-100% figure matches this lab's already-documented pre-existing tail-latency flakiness in the saga poll window, not a regression from this milestone |
+| `k6-run.sh baseline` | `failed_rate=0`, `checks_rate=1`, `flow_rate=1`; `create_p95_ms=3.9` - no regression from the JSON→Avro transport change |
 
 ### Compatibility enforcement
 

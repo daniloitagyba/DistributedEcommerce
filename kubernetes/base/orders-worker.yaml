@@ -56,6 +56,8 @@ spec:
               value: kafka:9092
             - name: SagaOrchestration__BootstrapServers
               value: kafka:9092
+            - name: OrderEventStore__BootstrapServers
+              value: kafka:9092
             - name: SchemaRegistry__Url
               value: http://schema-registry:8081
             - name: Redis__ConnectionString

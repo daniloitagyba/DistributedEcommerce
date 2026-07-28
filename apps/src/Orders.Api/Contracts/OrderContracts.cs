@@ -30,3 +30,24 @@ public sealed record OrderSummaryResponse(
     DateTimeOffset? OrderCreatedAt,
     DateTimeOffset? DecidedAt,
     DateTimeOffset ProjectedAt);
+
+/// <summary>
+/// Milestone 23: an order's state reconstructed by folding the event store,
+/// alongside the raw events that produced it - the audit trail.
+/// </summary>
+public sealed record OrderHistoryResponse(
+    Guid OrderId,
+    OrderSnapshotResponse? Snapshot,
+    IReadOnlyList<OrderEventResponse> Events);
+
+public sealed record OrderSnapshotResponse(
+    string? CustomerId,
+    decimal? Amount,
+    string? Currency,
+    string Status,
+    DateTimeOffset? CreatedAt);
+
+public sealed record OrderEventResponse(
+    long Id,
+    string EventType,
+    DateTimeOffset OccurredAt);

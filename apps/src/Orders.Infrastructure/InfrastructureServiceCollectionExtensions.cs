@@ -63,6 +63,7 @@ public static class InfrastructureServiceCollectionExtensions
 
         services.AddScoped<IOrderRepository, Persistence.EfOrderRepository>();
         services.AddScoped<IOrderSummaryRepository, Persistence.EfOrderSummaryRepository>();
+        services.AddScoped<IOrderEventStoreRepository, Persistence.EfOrderEventStoreRepository>();
         services.AddSingleton<IOrderCache, RedisOrderCache>();
         services.AddSingleton<IOrderEventPublisher, KafkaOrderEventPublisher>();
         services.AddHostedService<OutboxPublisher>();

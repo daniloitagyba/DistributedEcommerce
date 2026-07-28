@@ -14,12 +14,15 @@ public sealed class OrdersDbContext(DbContextOptions<OrdersDbContext> options) :
 
     public DbSet<OrderSummary> OrderSummaries => Set<OrderSummary>();
 
+    public DbSet<OrderEvent> OrderEvents => Set<OrderEvent>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ConfigureOrder(modelBuilder);
         ConfigureOutbox(modelBuilder);
         ConfigureInbox(modelBuilder);
         ConfigureOrderSummary(modelBuilder);
+        ConfigureOrderEvent(modelBuilder);
     }
 
     private static void ConfigureOrder(ModelBuilder modelBuilder)
@@ -102,6 +105,21 @@ public sealed class OrdersDbContext(DbContextOptions<OrdersDbContext> options) :
         summary.Property(item => item.ProjectedAt).HasColumnName("projected_at").IsRequired();
         summary.HasIndex(item => new { item.Status, item.OrderCreatedAt })
             .HasDatabaseName("ix_order_summaries_status");
+    }
+
+    private static void ConfigureOrderEvent(ModelBuilder modelBuilder)
+    {
+        var orderEvent = modelBuilder.Entity<OrderEvent>();
+
+        orderEvent.ToTable("order_events");
+        orderEvent.HasKey(item => item.Id);
+        orderEvent.Property(item => item.Id).HasColumnName("id").ValueGeneratedOnAdd();
+        orderEvent.Property(item => item.OrderId).HasColumnName("order_id").IsRequired();
+        orderEvent.Property(item => item.EventType).HasColumnName("event_type").HasMaxLength(64).IsRequired();
+        orderEvent.Property(item => item.Payload).HasColumnName("payload").HasColumnType("jsonb").IsRequired();
+        orderEvent.Property(item => item.OccurredAt).HasColumnName("occurred_at").IsRequired();
+        orderEvent.HasIndex(item => new { item.OrderId, item.Id })
+            .HasDatabaseName("ix_order_events_order_id");
     }
 }
 

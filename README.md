@@ -1,6 +1,6 @@
 # Local Distributed Systems Lab
 
-This repository is a practical distributed systems laboratory running on an Ubuntu server. Milestone 14 makes `orders-worker` horizontally scalable and drives that scaling from Kafka consumer-group lag via KEDA, instead of the CPU-based approach `orders-api` uses.
+This repository is a practical distributed systems laboratory running on an Ubuntu server. Milestone 15 adds GitOps and progressive delivery: Argo CD reconciles the cluster from this repo's `main` branch, and `orders-api` deploys as an Argo Rollouts canary with an automated, Prometheus-backed analysis gate instead of an all-at-once rolling update.
 
 ## Architecture
 
@@ -52,6 +52,7 @@ PostgreSQL, Kafka, Redis, Tempo, Loki, and the Collector have no host ports. Kaf
 - `docs/caching`: reviewed Redis cache-aside and invalidation reports.
 - `docs/cqrs`: reviewed read-projection and projection-lag reports.
 - `docs/scaling`: reviewed Kafka-partitioning and KEDA autoscaling reports.
+- `docs/gitops`: reviewed GitOps and progressive-delivery reports.
 - `docs/load-shedding`: reviewed rate-limiting and overload reports.
 - `docs/performance`: versioned baseline reports and interpretation notes.
 - `docs/resilience`: reviewed autoscaling and controlled-failure reports.
@@ -283,4 +284,10 @@ Because the projector's two source topics have no ordering guarantee relative to
 
 Getting KEDA to actually read consumer-group lag surfaced a real cross-namespace Kafka gotcha: the KEDA operator runs outside the `orders-lab` namespace, so the short hostname (`kafka:9092`) every application pod already uses doesn't resolve for it, and worse, Kafka's own advertised-listener metadata redirects any client back to that short name after the first connection regardless of which bootstrap address it used. The fix was a second Kafka listener (port 9094, advertised via the fully-qualified `kafka.orders-lab.svc.cluster.local`) reserved for cross-namespace clients like KEDA, while every existing consumer and producer keeps using the original listener, untouched. See `docs/scaling/milestone-14-partitioning-keda.md` for the measured scale-up/scale-down timeline (1 → 3 replicas within ~30 seconds of load, back down to 1 over ~78 seconds after load stops) reusing Milestone 8's unmodified `autoscale` profile as load.
 
-The next milestone can bring GitOps and progressive delivery — reconciling `kubernetes/` from Git instead of `kubectl apply` from a laptop, with an automated canary and rollback demonstrated against a deliberately broken deploy.
+## GitOps + progressive delivery
+
+[Argo CD](https://argo-cd.readthedocs.io) reconciles `kubernetes/overlays/local` directly from this (private) repo's `main` branch, via a dedicated read-only SSH deploy key — no more `kubectl apply` from a laptop for what it manages. Migration Jobs became Argo CD `PreSync` hooks (delete-and-rerun automatically before every sync) instead of plain Jobs, the GitOps-native version of the Job-immutability fix from Milestones 12–13. `orders-api` deploys as an [Argo Rollouts](https://argoproj.github.io/argo-rollouts/) canary (33% → automated analysis → 66% → 100%) instead of an all-at-once Deployment rollout, gated by a Prometheus-backed `AnalysisTemplate` checking the 5xx error rate rather than a human watching a dashboard.
+
+The rollback path was proven, not just described: a build that unconditionally fails every `POST /orders` (health checks untouched, so it actually receives canary traffic) was committed and pushed: Argo CD picked it up, the canary reached 33% weight, and the AnalysisRun caught the elevated error rate and aborted automatically, reverting to the last good version — no manual intervention. Reverting the defect and pushing again promoted cleanly through all three weight steps to `Healthy` in under two minutes. See `docs/gitops/milestone-15-gitops-progressive-delivery.md` for the full timeline and the real cross-namespace Kafka/Prometheus and `selfHeal`-vs-manual-`kubectl` gotchas hit along the way.
+
+The next milestone can add SLOs and multi-window, multi-burn-rate alerting derived from the baselines already established, validated against Milestone 10's chaos experiments.

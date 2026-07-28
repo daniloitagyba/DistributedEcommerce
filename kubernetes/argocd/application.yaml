@@ -1,0 +1,23 @@
+# Bootstrap resource: applied once, imperatively, to tell Argo CD about this
+# repo. Everything it manages after that point is reconciled from git, not
+# from further kubectl commands - see docs/gitops/milestone-15-gitops-progressive-delivery.md.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: local-distributed-lab
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:daniloitagyba/local-distributed-lab.git
+    targetRevision: main
+    path: kubernetes/overlays/local
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: orders-lab
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

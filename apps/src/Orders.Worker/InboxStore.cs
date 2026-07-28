@@ -1,9 +1,12 @@
+using BuildingBlocks;
 using Npgsql;
 using NpgsqlTypes;
+using Polly;
+using Polly.Registry;
 
 namespace Orders.Worker;
 
-public sealed class InboxStore(NpgsqlDataSource dataSource)
+public sealed class InboxStore(NpgsqlDataSource dataSource, ResiliencePipelineProvider<string> pipelineProvider)
 {
     private const string InsertSql = """
         INSERT INTO inbox_messages
@@ -12,6 +15,8 @@ public sealed class InboxStore(NpgsqlDataSource dataSource)
             (@consumer_name, @event_id, @topic, @partition, @offset, @correlation_id, @processed_at)
         ON CONFLICT (consumer_name, event_id) DO NOTHING;
         """;
+
+    private readonly ResiliencePipeline _pipeline = pipelineProvider.GetPipeline(ResilienceExtensions.PostgresPipeline);
 
     public async Task<bool> TryRecordAsync(
         string consumerName,
@@ -23,15 +28,18 @@ public sealed class InboxStore(NpgsqlDataSource dataSource)
         DateTimeOffset processedAt,
         CancellationToken cancellationToken)
     {
-        await using var command = dataSource.CreateCommand(InsertSql);
-        command.Parameters.AddWithValue("consumer_name", NpgsqlDbType.Varchar, consumerName);
-        command.Parameters.AddWithValue("event_id", NpgsqlDbType.Uuid, eventId);
-        command.Parameters.AddWithValue("topic", NpgsqlDbType.Varchar, topic);
-        command.Parameters.AddWithValue("partition", NpgsqlDbType.Integer, partition);
-        command.Parameters.AddWithValue("offset", NpgsqlDbType.Bigint, offset);
-        command.Parameters.AddWithValue("correlation_id", NpgsqlDbType.Varchar, correlationId);
-        command.Parameters.AddWithValue("processed_at", NpgsqlDbType.TimestampTz, processedAt);
+        return await _pipeline.ExecuteAsync(async ct =>
+        {
+            await using var command = dataSource.CreateCommand(InsertSql);
+            command.Parameters.AddWithValue("consumer_name", NpgsqlDbType.Varchar, consumerName);
+            command.Parameters.AddWithValue("event_id", NpgsqlDbType.Uuid, eventId);
+            command.Parameters.AddWithValue("topic", NpgsqlDbType.Varchar, topic);
+            command.Parameters.AddWithValue("partition", NpgsqlDbType.Integer, partition);
+            command.Parameters.AddWithValue("offset", NpgsqlDbType.Bigint, offset);
+            command.Parameters.AddWithValue("correlation_id", NpgsqlDbType.Varchar, correlationId);
+            command.Parameters.AddWithValue("processed_at", NpgsqlDbType.TimestampTz, processedAt);
 
-        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+            return await command.ExecuteNonQueryAsync(ct) == 1;
+        }, cancellationToken);
     }
 }

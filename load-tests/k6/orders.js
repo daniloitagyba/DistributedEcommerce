@@ -143,11 +143,28 @@ const profiles = {
       'http_req_duration{endpoint:get-order-cached}': ['p(95)<100', 'p(99)<250'],
     },
   },
+  chaos: {
+    scenarios: {
+      orders: {
+        executor: 'constant-vus',
+        vus: 5,
+        duration: '40s',
+        gracefulStop: '15s',
+      },
+    },
+    thresholds: {
+      checks: ['rate>0.95'],
+      http_req_failed: ['rate<0.05'],
+      order_flow_success: ['rate>0.95'],
+      'http_req_duration{endpoint:create-order}': ['p(95)<3000'],
+      'http_req_duration{endpoint:get-order}': ['p(95)<3000'],
+    },
+  },
 };
 
 if (!profiles[profileName]) {
   throw new Error(
-    `Unsupported PROFILE "${profileName}". Use smoke, baseline, autoscale, resilience, stress, soak, or cache.`,
+    `Unsupported PROFILE "${profileName}". Use smoke, baseline, autoscale, resilience, stress, soak, cache, or chaos.`,
   );
 }
 
@@ -185,7 +202,7 @@ export function setup() {
         'Content-Type': 'application/json',
         'X-Correlation-ID': `k6-cache-seed-${runId}-${index}`,
       },
-      timeout: '5s',
+      timeout: '10s',
     });
     if (response.status === 201) {
       const id = response.json('id');
@@ -223,7 +240,7 @@ function cacheWorkload(data) {
       endpoint: 'get-order-cached',
       name: 'GET /orders/:id (cached)',
     },
-    timeout: '5s',
+    timeout: '10s',
   });
 
   const succeeded = check(response, {
@@ -253,7 +270,7 @@ function ordersWorkload() {
       endpoint: 'create-order',
       name: 'POST /orders',
     },
-    timeout: '5s',
+    timeout: '10s',
   });
 
   const responseCorrelationId = createResponse.headers['X-Correlation-Id'];
@@ -289,7 +306,7 @@ function ordersWorkload() {
       endpoint: 'get-order',
       name: 'GET /orders/:id',
     },
-    timeout: '5s',
+    timeout: '10s',
   });
 
   const readSucceeded = check(getResponse, {

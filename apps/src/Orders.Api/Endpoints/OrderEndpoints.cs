@@ -7,6 +7,7 @@ using Orders.Api.Contracts;
 using Orders.Api.Data;
 using Orders.Api.Domain;
 using Orders.Api.Middleware;
+using Polly.Registry;
 
 namespace Orders.Api.Endpoints;
 
@@ -27,6 +28,7 @@ public static class OrderEndpoints
     private static async Task<IResult> CreateAsync(
         CreateOrderRequest request,
         OrdersDbContext dbContext,
+        ResiliencePipelineProvider<string> pipelineProvider,
         IConfiguration configuration,
         HttpContext httpContext,
         ILogger<OrderEndpointLog> logger,
@@ -66,11 +68,22 @@ public static class OrderEndpoints
         Activity.Current?.SetTag("messaging.message.id", orderCreated.EventId);
         Activity.Current?.SetTag("service.instance.id", instanceId);
 
-        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
-        dbContext.Orders.Add(order);
-        dbContext.OutboxMessages.Add(outboxMessage);
-        await dbContext.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+        var pipeline = pipelineProvider.GetPipeline(ResilienceExtensions.PostgresPipeline);
+        try
+        {
+            await pipeline.ExecuteAsync(async ct =>
+            {
+                await using var transaction = await dbContext.Database.BeginTransactionAsync(ct);
+                dbContext.Orders.Add(order);
+                dbContext.OutboxMessages.Add(outboxMessage);
+                await dbContext.SaveChangesAsync(ct);
+                await transaction.CommitAsync(ct);
+            }, cancellationToken);
+        }
+        catch (Exception exception) when (ResilienceExtensions.IsInfrastructureFault(exception))
+        {
+            return ServiceUnavailable(httpContext, "PostgreSQL is currently unavailable.");
+        }
 
         OrdersTelemetry.RecordCreated(order.Currency);
         OrderEndpointLog.OrderAccepted(
@@ -88,30 +101,54 @@ public static class OrderEndpoints
         Guid id,
         OrdersDbContext dbContext,
         IOrderCache cache,
+        ResiliencePipelineProvider<string> pipelineProvider,
         IConfiguration configuration,
         HttpContext httpContext,
         CancellationToken cancellationToken)
     {
-        var lookup = await cache.GetOrCreateAsync(
-            id,
-            async token =>
-            {
-                var order = await dbContext.Orders.AsNoTracking().SingleOrDefaultAsync(item => item.Id == id, token);
-                return order is null ? null : ToCachedOrder(order);
-            },
-            cancellationToken);
+        var pipeline = pipelineProvider.GetPipeline(ResilienceExtensions.PostgresPipeline);
+        CacheLookup lookup;
+        try
+        {
+            lookup = await cache.GetOrCreateAsync(
+                id,
+                token => pipeline.ExecuteAsync(async ct =>
+                {
+                    var order = await dbContext.Orders.AsNoTracking().SingleOrDefaultAsync(item => item.Id == id, ct);
+                    return order is null ? null : ToCachedOrder(order);
+                }, token).AsTask(),
+                cancellationToken);
+        }
+        catch (Exception exception) when (ResilienceExtensions.IsInfrastructureFault(exception))
+        {
+            return ServiceUnavailable(httpContext, "PostgreSQL is currently unavailable.");
+        }
 
         if (lookup.Order is null)
         {
             return Results.NotFound();
         }
 
-        httpContext.Response.Headers["X-Cache"] = lookup.Result == CacheLookupResult.Hit ? "HIT" : "MISS";
+        httpContext.Response.Headers["X-Cache"] = lookup.Result switch
+        {
+            CacheLookupResult.Hit => "HIT",
+            CacheLookupResult.Bypassed => "BYPASS",
+            _ => "MISS"
+        };
 
         return Results.Ok(ToResponse(
             lookup.Order,
             httpContext.GetCorrelationId(),
             configuration["InstanceId"] ?? Environment.MachineName));
+    }
+
+    private static IResult ServiceUnavailable(HttpContext httpContext, string detail)
+    {
+        httpContext.Response.Headers["Retry-After"] = "5";
+        return Results.Problem(
+            detail: detail,
+            statusCode: StatusCodes.Status503ServiceUnavailable,
+            title: "Service Unavailable");
     }
 
     private static CachedOrder ToCachedOrder(Order order)

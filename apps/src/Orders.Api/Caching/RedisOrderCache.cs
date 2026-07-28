@@ -1,17 +1,21 @@
 using System.Text.Json;
 using BuildingBlocks;
 using Microsoft.Extensions.Options;
+using Polly;
+using Polly.Registry;
 using StackExchange.Redis;
 
 namespace Orders.Api.Caching;
 
 public sealed class RedisOrderCache(
     IConnectionMultiplexer connectionMultiplexer,
+    ResiliencePipelineProvider<string> pipelineProvider,
     IOptions<CacheOptions> options) : IOrderCache
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
     private static readonly RedisValue LockToken = Environment.MachineName;
     private readonly CacheOptions _options = options.Value;
+    private readonly ResiliencePipeline _pipeline = pipelineProvider.GetPipeline(ResilienceExtensions.RedisPipeline);
 
     public async Task<CacheLookup> GetOrCreateAsync(
         Guid id,
@@ -21,7 +25,21 @@ public sealed class RedisOrderCache(
         var database = connectionMultiplexer.GetDatabase();
         var cacheKey = OrderCacheKeys.Key(id);
 
-        var cached = await TryReadAsync(database, cacheKey);
+        CachedOrder? cached;
+        try
+        {
+            cached = await _pipeline.ExecuteAsync(
+                async ct => await TryReadAsync(database, cacheKey).WaitAsync(ct),
+                cancellationToken);
+        }
+        catch (Exception exception) when (ResilienceExtensions.IsInfrastructureFault(exception))
+        {
+            // Redis is unavailable: degrade gracefully to an uncached read rather than failing the request.
+            OrdersTelemetry.RecordCacheBypass();
+            var bypassedOrder = await factory(cancellationToken);
+            return new CacheLookup(bypassedOrder, CacheLookupResult.Bypassed);
+        }
+
         if (cached is not null)
         {
             OrdersTelemetry.RecordCacheHit();

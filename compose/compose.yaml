@@ -113,6 +113,23 @@ services:
     cpus: 0.25
     stop_grace_period: 10s
 
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.9.0
+    restart: unless-stopped
+    command: ["-host=0.0.0.0", "-config=/etc/toxiproxy/proxies.json"]
+    volumes:
+      - ./toxiproxy/proxies.json:/etc/toxiproxy/proxies.json:ro
+    ports:
+      - "127.0.0.1:${TOXIPROXY_ADMIN_PORT:-8474}:8474"
+    networks:
+      frontend:
+      backend:
+      k3s-bridge:
+        ipv4_address: 172.30.0.14
+    mem_limit: 64m
+    cpus: 0.25
+    stop_grace_period: 10s
+
   kafka-init:
     image: apache/kafka:4.1.1
     restart: "no"

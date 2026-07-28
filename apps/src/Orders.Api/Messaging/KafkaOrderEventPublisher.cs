@@ -4,6 +4,7 @@ using System.Text.Json;
 using BuildingBlocks;
 using Confluent.Kafka;
 using Microsoft.Extensions.Options;
+using Polly.Registry;
 
 namespace Orders.Api.Messaging;
 
@@ -12,9 +13,13 @@ public interface IOrderEventPublisher
     Task PublishAsync(OrderCreated orderCreated, CancellationToken cancellationToken);
 }
 
-public sealed class KafkaOrderEventPublisher(IProducer<string, string> producer, IOptions<KafkaOptions> options) : IOrderEventPublisher
+public sealed class KafkaOrderEventPublisher(
+    IProducer<string, string> producer,
+    IOptions<KafkaOptions> options,
+    ResiliencePipelineProvider<string> pipelineProvider) : IOrderEventPublisher
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
+    private readonly Polly.ResiliencePipeline _pipeline = pipelineProvider.GetPipeline(ResilienceExtensions.KafkaProducerPipeline);
 
     public async Task PublishAsync(OrderCreated orderCreated, CancellationToken cancellationToken)
     {
@@ -30,7 +35,9 @@ public sealed class KafkaOrderEventPublisher(IProducer<string, string> producer,
             Headers = headers
         };
 
-        await producer.ProduceAsync(options.Value.OrderCreatedTopic, message, cancellationToken);
+        await _pipeline.ExecuteAsync(
+            async ct => await producer.ProduceAsync(options.Value.OrderCreatedTopic, message, ct).WaitAsync(ct),
+            cancellationToken);
     }
 
     private static void AddHeader(Headers headers, string key, string? value)

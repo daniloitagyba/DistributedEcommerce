@@ -399,6 +399,48 @@
       ],
       "title": "Cache hits vs misses",
       "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 28
+      },
+      "id": 10,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum by (pipeline_name, event_name) (rate(resilience_polly_strategy_events_total{event_name!=\"PipelineExecuting\"}[5m]))",
+          "legendFormat": "{{pipeline_name}} {{event_name}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Resilience events (retries, timeouts, circuit breaker)",
+      "type": "timeseries"
     }
   ],
   "refresh": "10s",
@@ -420,5 +462,5 @@
   "timezone": "browser",
   "title": "Orders Lab Overview",
   "uid": "orders-lab-overview",
-  "version": 3
+  "version": 4
 }

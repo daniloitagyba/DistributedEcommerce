@@ -1,5 +1,8 @@
+using BuildingBlocks;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Orders.Api.Caching;
+using Polly.Registry;
 using StackExchange.Redis;
 using Testcontainers.Redis;
 
@@ -8,6 +11,10 @@ namespace Orders.IntegrationTests;
 public sealed class RedisOrderCacheTests : IAsyncLifetime
 {
     private readonly RedisContainer _redis = new RedisBuilder("redis:7.4-alpine").Build();
+    private readonly ResiliencePipelineProvider<string> _pipelineProvider = new ServiceCollection()
+        .AddOrdersResilience()
+        .BuildServiceProvider()
+        .GetRequiredService<ResiliencePipelineProvider<string>>();
     private ConnectionMultiplexer? _connectionMultiplexer;
 
     public async Task InitializeAsync()
@@ -29,7 +36,7 @@ public sealed class RedisOrderCacheTests : IAsyncLifetime
     [Fact]
     public async Task GetOrCreateAsyncServesSubsequentReadsFromCacheUntilInvalidated()
     {
-        var cache = new RedisOrderCache(_connectionMultiplexer!, Options.Create(new CacheOptions()));
+        var cache = new RedisOrderCache(_connectionMultiplexer!, _pipelineProvider, Options.Create(new CacheOptions()));
         var orderId = Guid.NewGuid();
         var factoryCalls = 0;
 

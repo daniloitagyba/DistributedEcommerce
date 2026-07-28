@@ -53,6 +53,7 @@ public static class ObservabilityExtensions
                 .AddOtlpExporter())
             .WithMetrics(metrics => metrics
                 .AddMeter(OrdersTelemetry.SourceName)
+                .AddMeter("Polly")
                 .AddAspNetCoreInstrumentation()
                 .AddHttpClientInstrumentation()
                 .AddRuntimeInstrumentation()

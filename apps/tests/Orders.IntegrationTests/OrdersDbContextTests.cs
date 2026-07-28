@@ -1,8 +1,11 @@
+using BuildingBlocks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Orders.Api.Data;
 using Orders.Api.Domain;
 using Orders.Worker;
+using Polly.Registry;
 using Testcontainers.PostgreSql;
 
 namespace Orders.IntegrationTests;
@@ -52,8 +55,13 @@ public sealed class OrdersDbContextTests : IAsyncLifetime
             await transaction.CommitAsync(CancellationToken.None);
         }
 
+        var pipelineProvider = new ServiceCollection()
+            .AddOrdersResilience()
+            .BuildServiceProvider()
+            .GetRequiredService<ResiliencePipelineProvider<string>>();
+
         await using var dataSource = NpgsqlDataSource.Create(_postgres.GetConnectionString());
-        var inboxStore = new InboxStore(dataSource);
+        var inboxStore = new InboxStore(dataSource, pipelineProvider);
         var eventId = Guid.NewGuid();
         var firstProcessing = await inboxStore.TryRecordAsync(
             "orders-worker",

@@ -89,7 +89,7 @@ public sealed class OrderCreatedConsumer(
                 await processor.ProcessAsync(consumeResult, cancellationToken);
                 return true;
             }
-            catch (NpgsqlException exception)
+            catch (Exception exception) when (exception is NpgsqlException || ResilienceExtensions.IsInfrastructureFault(exception))
             {
                 WorkerLog.InfrastructureFailure(logger, consumeResult.TopicPartitionOffset.ToString(), exception);
                 await DelayForInfrastructureAsync(cancellationToken);

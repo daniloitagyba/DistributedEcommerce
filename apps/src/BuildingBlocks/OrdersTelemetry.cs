@@ -19,6 +19,7 @@ public static class OrdersTelemetry
     private static readonly Counter<long> DeadLetterCounter = Meter.CreateCounter<long>("messaging.dead_letters");
     private static readonly Counter<long> CacheHitCounter = Meter.CreateCounter<long>("orders.cache.hits");
     private static readonly Counter<long> CacheMissCounter = Meter.CreateCounter<long>("orders.cache.misses");
+    private static readonly Counter<long> CacheBypassCounter = Meter.CreateCounter<long>("orders.cache.bypassed");
 
     public static Activity? StartActivity(
         string name,
@@ -78,5 +79,10 @@ public static class OrdersTelemetry
     public static void RecordCacheMiss()
     {
         CacheMissCounter.Add(1);
+    }
+
+    public static void RecordCacheBypass()
+    {
+        CacheBypassCounter.Add(1);
     }
 }

@@ -3,7 +3,8 @@ namespace Orders.Api.Caching;
 public enum CacheLookupResult
 {
     Hit,
-    Miss
+    Miss,
+    Bypassed
 }
 
 public sealed record CacheLookup(CachedOrder? Order, CacheLookupResult Result);

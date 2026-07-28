@@ -36,6 +36,7 @@ builder.Services.AddOptions<MessageProcessingOptions>()
 var connectionString = builder.Configuration.GetConnectionString("Orders")
     ?? throw new InvalidOperationException("Connection string 'Orders' is required.");
 builder.Services.AddSingleton(NpgsqlDataSource.Create(connectionString));
+builder.Services.AddOrdersResilience();
 builder.Services.AddSingleton<InboxStore>();
 builder.Services.AddSingleton<OrderStatusStore>();
 builder.Services.AddSingleton<OrderMessageProcessor>();

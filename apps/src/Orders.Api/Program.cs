@@ -70,6 +70,7 @@ builder.Services.AddSingleton<IAdminClient>(serviceProvider =>
     var config = new AdminClientConfig { BootstrapServers = options.BootstrapServers };
     return new AdminClientBuilder(config).Build();
 });
+builder.Services.AddOrdersResilience();
 builder.Services.AddSingleton<IOrderEventPublisher, KafkaOrderEventPublisher>();
 builder.Services.AddHostedService<OutboxPublisher>();
 builder.Services.AddOrdersRedis(builder.Configuration);

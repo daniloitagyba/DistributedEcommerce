@@ -1,6 +1,6 @@
 # Local Distributed Systems Lab
 
-This repository is a practical distributed systems laboratory running on an Ubuntu server. Milestone 9 adds a Redis cache-aside layer in front of order reads, with cross-service invalidation driven by the Worker.
+This repository is a practical distributed systems laboratory running on an Ubuntu server. Milestone 10 adds Polly-based resilience (timeout, retry, circuit breaker) around every external dependency, and validates it with real fault injection through Toxiproxy.
 
 ## Architecture
 
@@ -34,11 +34,11 @@ PostgreSQL, Kafka, Redis, Tempo, Loki, and the Collector have no host ports. Kaf
 
 ## Repository layout
 
-- `apps/src/BuildingBlocks`: event contracts, shared OpenTelemetry instrumentation, and shared Redis wiring.
-- `apps/src/Orders.Api`: order API, PostgreSQL persistence, transactional Outbox, migrations, Kafka producer, and the Redis cache-aside layer.
-- `apps/src/Orders.Worker`: idempotent Kafka consumer, PostgreSQL Inbox, order status transitions, cache invalidation, bounded retries, and DLQ publisher.
+- `apps/src/BuildingBlocks`: event contracts, shared OpenTelemetry instrumentation, shared Redis wiring, and the Polly resilience pipelines.
+- `apps/src/Orders.Api`: order API, PostgreSQL persistence, transactional Outbox, migrations, Kafka producer, and the Redis cache-aside layer, all wrapped with resilience pipelines.
+- `apps/src/Orders.Worker`: idempotent Kafka consumer, PostgreSQL Inbox, order status transitions, cache invalidation, bounded retries, and DLQ publisher, all wrapped with resilience pipelines.
 - `apps/tests`: unit tests and PostgreSQL/Redis Testcontainers integration tests.
-- `compose`: external infrastructure and the optional legacy Compose application profile.
+- `compose`: external infrastructure, Toxiproxy for fault injection, and the optional legacy Compose application profile.
 - `docs/caching`: reviewed Redis cache-aside and invalidation reports.
 - `docs/performance`: versioned baseline reports and interpretation notes.
 - `docs/resilience`: reviewed autoscaling and controlled-failure reports.
@@ -141,6 +141,7 @@ Available profiles:
 - `stress`: optional ramp to 30 VUs over 90 seconds.
 - `soak`: optional 5 VUs for 5 minutes.
 - `cache`: seeds a pool of orders, then holds 10 VUs for 30 seconds reading only, to measure cache hit ratio and cached-read latency.
+- `chaos`: holds 5 VUs for 40 seconds with relaxed latency thresholds, used by `scripts/resilience-chaos.sh` while a fault is injected through Toxiproxy.
 
 Run the conservative profiles:
 
@@ -234,6 +235,12 @@ Dead letters are retained for 24 hours in the internal Kafka topic `orders.creat
 
 ## Caching
 
-`GET /orders/{id}` uses cache-aside against Redis: a hit is served directly from `orders:cache:{id}`; a miss takes a short distributed lock (`orders:cache-lock:{id}`) to avoid a stampede, reads PostgreSQL, and repopulates the cache with a 30-second TTL. Responses include an `X-Cache: HIT|MISS` header. After the Worker processes an order's event, it transitions the order to `Confirmed` and deletes the cache entry, so the next read reflects the new status instead of a stale one. Redis has no host port and no authentication, matching the existing Kafka trust model. See `docs/caching/milestone-9-cache.md` for the measured hit ratio and cached-read latency.
+`GET /orders/{id}` uses cache-aside against Redis: a hit is served directly from `orders:cache:{id}`; a miss takes a short distributed lock (`orders:cache-lock:{id}`) to avoid a stampede, reads PostgreSQL, and repopulates the cache with a 30-second TTL. Responses include an `X-Cache: HIT|MISS|BYPASS` header. After the Worker processes an order's event, it transitions the order to `Confirmed` and deletes the cache entry, so the next read reflects the new status instead of a stale one. Redis has no host port and no authentication, matching the existing Kafka trust model. See `docs/caching/milestone-9-cache.md` for the measured hit ratio and cached-read latency.
 
-The next milestone can add dependency-failure and recovery drills for PostgreSQL, Kafka, and Redis (via Toxiproxy), plus resilience policies (timeouts, retries, circuit breakers) and actionable Prometheus alerts, while retaining the same non-public access model and conservative resource budget.
+## Resilience and chaos engineering
+
+Every call to PostgreSQL, Kafka, and Redis goes through a named Polly pipeline (timeout, retry, circuit breaker) registered in `BuildingBlocks/ResilienceExtensions.cs`. PostgreSQL and Kafka failures fail fast — a `503 Service Unavailable` with `Retry-After` instead of a multi-second hang — while a Redis outage degrades gracefully: the cache is bypassed (`X-Cache: BYPASS`) and reads fall straight through to PostgreSQL rather than failing the request. Every pipeline execution, retry, timeout, and circuit-breaker transition is emitted automatically as an OpenTelemetry metric (`resilience_polly_*`) and graphed on the `Orders Lab Overview` dashboard.
+
+`scripts/resilience-chaos.sh <postgres|kafka> <latency|outage>` proves these policies against real faults using [Toxiproxy](https://github.com/Shopify/toxiproxy), which runs in Compose but is **not** in the default traffic path. The script reversibly reroutes the target's EndpointSlice through Toxiproxy for the duration of one experiment — restarting the workloads so pooled connections actually traverse the fault, injecting a latency or outage toxic, running a workload, then always reverting (via a `trap`-guarded cleanup) and re-verifying the EndpointSlice is back on the real backend before declaring success. See `docs/resilience/milestone-10-chaos-resilience.md` for the measured results, including a PostgreSQL outage that fails every request in a consistent ~320 ms with zero partial writes, and a Kafka outage that has no effect at all on order creation (201s in ~12 ms) because the transactional Outbox decouples the two.
+
+The next milestone can add a rate-limited gateway in front of the API to demonstrate load shedding under overload, building on the fail-fast behavior introduced here.

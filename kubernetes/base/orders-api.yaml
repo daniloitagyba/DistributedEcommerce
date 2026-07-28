@@ -56,6 +56,12 @@ spec:
               value: "3"
             - name: Cache__LockRetryDelayMilliseconds
               value: "50"
+            - name: RateLimit__TokenLimit
+              value: "80"
+            - name: RateLimit__TokensPerPeriod
+              value: "75"
+            - name: RateLimit__ReplenishmentPeriodSeconds
+              value: "1"
             - name: InstanceId
               valueFrom:
                 fieldRef:

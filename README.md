@@ -1,6 +1,6 @@
 # Local Distributed Systems Lab
 
-This repository is a practical distributed systems laboratory running on an Ubuntu server. Milestone 10 adds Polly-based resilience (timeout, retry, circuit breaker) around every external dependency, and validates it with real fault injection through Toxiproxy.
+This repository is a practical distributed systems laboratory running on an Ubuntu server. Milestone 11 adds token-bucket rate limiting to the Orders API and proves it sheds overload (429s, fast) without real failures or accepted-request degradation.
 
 ## Architecture
 
@@ -35,11 +35,12 @@ PostgreSQL, Kafka, Redis, Tempo, Loki, and the Collector have no host ports. Kaf
 ## Repository layout
 
 - `apps/src/BuildingBlocks`: event contracts, shared OpenTelemetry instrumentation, shared Redis wiring, and the Polly resilience pipelines.
-- `apps/src/Orders.Api`: order API, PostgreSQL persistence, transactional Outbox, migrations, Kafka producer, and the Redis cache-aside layer, all wrapped with resilience pipelines.
+- `apps/src/Orders.Api`: order API, PostgreSQL persistence, transactional Outbox, migrations, Kafka producer, the Redis cache-aside layer, and token-bucket rate limiting, all wrapped with resilience pipelines.
 - `apps/src/Orders.Worker`: idempotent Kafka consumer, PostgreSQL Inbox, order status transitions, cache invalidation, bounded retries, and DLQ publisher, all wrapped with resilience pipelines.
 - `apps/tests`: unit tests and PostgreSQL/Redis Testcontainers integration tests.
 - `compose`: external infrastructure, Toxiproxy for fault injection, and the optional legacy Compose application profile.
 - `docs/caching`: reviewed Redis cache-aside and invalidation reports.
+- `docs/load-shedding`: reviewed rate-limiting and overload reports.
 - `docs/performance`: versioned baseline reports and interpretation notes.
 - `docs/resilience`: reviewed autoscaling and controlled-failure reports.
 - `kubernetes/base`: reusable application, migration, health, security, resource, and network-policy manifests.
@@ -142,6 +143,7 @@ Available profiles:
 - `soak`: optional 5 VUs for 5 minutes.
 - `cache`: seeds a pool of orders, then holds 10 VUs for 30 seconds reading only, to measure cache hit ratio and cached-read latency.
 - `chaos`: holds 5 VUs for 40 seconds with relaxed latency thresholds, used by `scripts/resilience-chaos.sh` while a fault is injected through Toxiproxy.
+- `overload`: paced ramp to 300 VUs for 30 seconds, deliberately exceeding capacity to exercise rate limiting and load shedding.
 
 Run the conservative profiles:
 
@@ -243,4 +245,10 @@ Every call to PostgreSQL, Kafka, and Redis goes through a named Polly pipeline (
 
 `scripts/resilience-chaos.sh <postgres|kafka> <latency|outage>` proves these policies against real faults using [Toxiproxy](https://github.com/Shopify/toxiproxy), which runs in Compose but is **not** in the default traffic path. The script reversibly reroutes the target's EndpointSlice through Toxiproxy for the duration of one experiment — restarting the workloads so pooled connections actually traverse the fault, injecting a latency or outage toxic, running a workload, then always reverting (via a `trap`-guarded cleanup) and re-verifying the EndpointSlice is back on the real backend before declaring success. See `docs/resilience/milestone-10-chaos-resilience.md` for the measured results, including a PostgreSQL outage that fails every request in a consistent ~320 ms with zero partial writes, and a Kafka outage that has no effect at all on order creation (201s in ~12 ms) because the transactional Outbox decouples the two.
 
-The next milestone can add a rate-limited gateway in front of the API to demonstrate load shedding under overload, building on the fail-fast behavior introduced here.
+## Load shedding
+
+`GET`/`POST /orders` share a per-pod token-bucket rate limiter (`RateLimit:*` config, `Orders.Api/RateLimiting`): burst capacity 80, refilling 75 tokens/second. Requests beyond the bucket get a `429 Too Many Requests` with a `Retry-After` header instead of queueing or being accepted into an overloaded backend — an `orders.rate_limited` metric tracks how often this triggers. This is deliberately a per-instance, in-memory limiter rather than a distributed one: the effective ceiling scales with replica count, protecting each pod's own resources behind the existing Kubernetes Service load balancing.
+
+Tuning this required two real fixes, documented in `docs/load-shedding/milestone-11-load-shedding.md`: an initial generous burst setting let a simulated thundering herd overwhelm PostgreSQL before steady-state throttling caught up (real 5xx errors, not just 429s), and PostgreSQL's `max_connections` (set to 50 in an earlier milestone) briefly exhausted under HPA-scaled connection pooling — raised to 100. The final settings shed 83%+ of a deliberate 300-VU overload with zero real failures and accepted-request p95 under 10 ms, while leaving Milestone 8's `autoscale` acceptance suite passing at 100%.
+
+The next milestone can add a second service (Payments) consuming order events with a choreographed saga, building on the resilience and load-shedding primitives introduced so far.

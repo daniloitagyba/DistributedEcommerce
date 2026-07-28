@@ -1,7 +1,7 @@
 import http from 'k6/http';
 import exec from 'k6/execution';
 import { check, sleep } from 'k6';
-import { Counter, Rate } from 'k6/metrics';
+import { Counter, Rate, Trend } from 'k6/metrics';
 
 const profileName = __ENV.PROFILE || 'smoke';
 const baseUrl = (__ENV.BASE_URL || '').replace(/\/$/, '');
@@ -160,11 +160,31 @@ const profiles = {
       'http_req_duration{endpoint:get-order}': ['p(95)<3000'],
     },
   },
+  overload: {
+    scenarios: {
+      orders: {
+        executor: 'ramping-vus',
+        startVUs: 0,
+        stages: [
+          { duration: '10s', target: 300 },
+          { duration: '20s', target: 300 },
+          { duration: '10s', target: 0 },
+        ],
+        gracefulRampDown: '10s',
+        gracefulStop: '15s',
+      },
+    },
+    thresholds: {
+      server_error_rate: ['rate<0.01'],
+      rate_limited_rate: ['rate>0.05'],
+      accepted_duration: ['p(95)<1500'],
+    },
+  },
 };
 
 if (!profiles[profileName]) {
   throw new Error(
-    `Unsupported PROFILE "${profileName}". Use smoke, baseline, autoscale, resilience, stress, soak, cache, or chaos.`,
+    `Unsupported PROFILE "${profileName}". Use smoke, baseline, autoscale, resilience, stress, soak, cache, chaos, or overload.`,
   );
 }
 
@@ -182,6 +202,9 @@ const createdOrders = new Counter('orders_created');
 const instanceRequests = new Counter('api_instance_requests');
 const successfulFlows = new Rate('order_flow_success');
 const cacheHitRate = new Rate('cache_hit_rate');
+const rateLimitedRate = new Rate('rate_limited_rate');
+const serverErrorRate = new Rate('server_error_rate');
+const acceptedDuration = new Trend('accepted_duration');
 
 const CACHE_SEED_POOL_SIZE = 15;
 
@@ -224,7 +247,52 @@ export default function (data) {
     return;
   }
 
+  if (profileName === 'overload') {
+    overloadWorkload();
+    return;
+  }
+
   ordersWorkload();
+}
+
+function overloadWorkload() {
+  const iterationId = `${runId}-${exec.vu.idInTest}-${exec.scenario.iterationInTest}`;
+  const payload = JSON.stringify({
+    customerId: `overload-customer-${iterationId}`,
+    amount: 9.9,
+    currency: 'BRL',
+  });
+
+  const response = http.post(`${baseUrl}/orders`, payload, {
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Correlation-ID': `k6-overload-${iterationId}`,
+    },
+    tags: {
+      endpoint: 'create-order',
+      name: 'POST /orders',
+    },
+    timeout: '10s',
+  });
+
+  const accepted = response.status === 201;
+  const rateLimited = response.status === 429;
+  const serverError = response.status >= 500;
+
+  rateLimitedRate.add(rateLimited);
+  serverErrorRate.add(serverError);
+
+  if (rateLimited) {
+    check(response, {
+      'rate limited response has Retry-After header': (res) => !!res.headers['Retry-After'],
+    });
+  }
+
+  if (accepted) {
+    acceptedDuration.add(response.timings.duration);
+  }
+
+  sleep(0.2 + Math.random() * 0.1);
 }
 
 function cacheWorkload(data) {

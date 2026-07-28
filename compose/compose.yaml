@@ -40,7 +40,7 @@ services:
       - -c
       - work_mem=4MB
       - -c
-      - max_connections=50
+      - max_connections=100
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -326,6 +326,25 @@ services:
     cpus: 0.50
     stop_grace_period: 20s
 
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    restart: unless-stopped
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/host/root
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+      - --collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs)$$
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro
+    networks:
+      - backend
+    mem_limit: 64m
+    cpus: 0.25
+    stop_grace_period: 10s
+
   prometheus:
     image: prom/prometheus:v3.13.1
     restart: unless-stopped
@@ -342,6 +361,8 @@ services:
       - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
     depends_on:
       otel-collector:
+        condition: service_started
+      node-exporter:
         condition: service_started
     networks:
       - frontend

@@ -7,6 +7,7 @@ using Orders.Api.Contracts;
 using Orders.Api.Data;
 using Orders.Api.Domain;
 using Orders.Api.Middleware;
+using Orders.Api.RateLimiting;
 using Polly.Registry;
 
 namespace Orders.Api.Endpoints;
@@ -17,7 +18,7 @@ public static class OrderEndpoints
 
     public static IEndpointRouteBuilder MapOrderEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        var group = endpoints.MapGroup("/orders").WithTags("Orders");
+        var group = endpoints.MapGroup("/orders").WithTags("Orders").RequireRateLimiting(RateLimitingExtensions.OrdersPolicy);
 
         group.MapPost("", CreateAsync);
         group.MapGet("/{id:guid}", GetByIdAsync);

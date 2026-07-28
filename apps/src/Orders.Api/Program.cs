@@ -9,6 +9,7 @@ using Orders.Api.Endpoints;
 using Orders.Api.Health;
 using Orders.Api.Messaging;
 using Orders.Api.Middleware;
+using Orders.Api.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 var instanceId = builder.Configuration["InstanceId"] ?? Environment.MachineName;
@@ -71,6 +72,7 @@ builder.Services.AddSingleton<IAdminClient>(serviceProvider =>
     return new AdminClientBuilder(config).Build();
 });
 builder.Services.AddOrdersResilience();
+builder.Services.AddOrdersRateLimiting(builder.Configuration);
 builder.Services.AddSingleton<IOrderEventPublisher, KafkaOrderEventPublisher>();
 builder.Services.AddHostedService<OutboxPublisher>();
 builder.Services.AddOrdersRedis(builder.Configuration);
@@ -91,6 +93,7 @@ if (args.Contains("--migrate", StringComparer.Ordinal))
 }
 
 app.UseExceptionHandler();
+app.UseRateLimiter();
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.Use(async (context, next) =>
 {

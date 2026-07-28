@@ -11,10 +11,10 @@ results_root=${K6_RESULTS_DIRECTORY:-"$project_directory/artifacts/k6"}
 prometheus_url=${PROMETHEUS_URL:-http://127.0.0.1:9090}
 
 case "$profile" in
-  smoke | baseline | autoscale | resilience | stress | soak | cache | chaos) ;;
+  smoke | baseline | autoscale | resilience | stress | soak | cache | chaos | overload) ;;
   *)
     printf \
-      'Unsupported profile "%s". Use smoke, baseline, autoscale, resilience, stress, soak, cache, or chaos.\n' \
+      'Unsupported profile "%s". Use smoke, baseline, autoscale, resilience, stress, soak, cache, chaos, or overload.\n' \
       "$profile" >&2
     exit 1
     ;;
@@ -22,7 +22,7 @@ esac
 
 if [[ -n "${PIPELINE_DRAIN_TIMEOUT_SECONDS:-}" ]]; then
   pipeline_drain_timeout_seconds=$PIPELINE_DRAIN_TIMEOUT_SECONDS
-elif [[ "$profile" == "autoscale" ]]; then
+elif [[ "$profile" == "autoscale" || "$profile" == "overload" ]]; then
   pipeline_drain_timeout_seconds=180
 else
   pipeline_drain_timeout_seconds=60

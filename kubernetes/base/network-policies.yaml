@@ -21,3 +21,16 @@ spec:
     - ports:
         - protocol: TCP
           port: 8080
+        # Linkerd's CNI plugin DNATs inbound traffic on meshed pods to the
+        # proxy's inbound port before this policy is evaluated (PREROUTING
+        # runs ahead of the FORWARD-chain NetworkPolicy check), so kube-router
+        # sees port 4143 on the wire, not 8080, for any request from another
+        # pod. Both must be allowed for meshed pods to receive traffic at all.
+        - protocol: TCP
+          port: 4143
+        # Proxy admin/metrics port - never redirected (Linkerd explicitly
+        # excludes it), but still genuine pod-to-pod traffic: linkerd-viz's
+        # Prometheus scrapes it from a different namespace, so it needs its
+        # own explicit allow too.
+        - protocol: TCP
+          port: 4191

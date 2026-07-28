@@ -1,6 +1,6 @@
 # Local Distributed Systems Lab
 
-This repository is a practical distributed systems laboratory running on an Ubuntu server. Milestone 15 adds GitOps and progressive delivery: Argo CD reconciles the cluster from this repo's `main` branch, and `orders-api` deploys as an Argo Rollouts canary with an automated, Prometheus-backed analysis gate instead of an all-at-once rolling update.
+This repository is a practical distributed systems laboratory running on an Ubuntu server. Milestone 16 defines an SLO for `orders-api` and implements multi-window, multi-burn-rate alerting for it — a page-worthy fast-burn rule and a ticket-worthy slow-burn rule, both validated against a real, deliberately broken deploy rather than just written and left untested.
 
 ## Architecture
 
@@ -53,6 +53,7 @@ PostgreSQL, Kafka, Redis, Tempo, Loki, and the Collector have no host ports. Kaf
 - `docs/cqrs`: reviewed read-projection and projection-lag reports.
 - `docs/scaling`: reviewed Kafka-partitioning and KEDA autoscaling reports.
 - `docs/gitops`: reviewed GitOps and progressive-delivery reports.
+- `docs/slo`: reviewed SLO and burn-rate alerting reports.
 - `docs/load-shedding`: reviewed rate-limiting and overload reports.
 - `docs/performance`: versioned baseline reports and interpretation notes.
 - `docs/resilience`: reviewed autoscaling and controlled-failure reports.
@@ -290,4 +291,10 @@ Getting KEDA to actually read consumer-group lag surfaced a real cross-namespace
 
 The rollback path was proven, not just described: a build that unconditionally fails every `POST /orders` (health checks untouched, so it actually receives canary traffic) was committed and pushed: Argo CD picked it up, the canary reached 33% weight, and the AnalysisRun caught the elevated error rate and aborted automatically, reverting to the last good version — no manual intervention. Reverting the defect and pushing again promoted cleanly through all three weight steps to `Healthy` in under two minutes. See `docs/gitops/milestone-15-gitops-progressive-delivery.md` for the full timeline and the real cross-namespace Kafka/Prometheus and `selfHeal`-vs-manual-`kubectl` gotchas hit along the way.
 
-The next milestone can add SLOs and multi-window, multi-burn-rate alerting derived from the baselines already established, validated against Milestone 10's chaos experiments.
+## SLOs + burn-rate alerting
+
+`orders-api` has a defined SLO — 99.5% of requests succeed over a rolling 30 days, a 0.5% error budget — backed by Prometheus recording rules that precompute request/error rates at six window sizes, and alerting rules following the Google SRE workbook's multi-window, multi-burn-rate pattern: a page-worthy rule requires a 14.4× burn rate on *both* a 5-minute and a 1-hour window simultaneously (requiring both is what stops a single brief spike from paging on its own — it barely moves the long window), and a ticket-worthy rule requires a 6× burn on both a 30-minute and a 6-hour window. [Alertmanager](https://prometheus.io/docs/alerting/latest/alertmanager/) gives the pipeline a real routing/grouping/inhibition/resolution target — no real notification integration is wired up for a personal lab, but the full state machine is exercised.
+
+The alerting pipeline was validated against a real, deliberately broken deploy rather than left as rules nobody had seen fire: reusing Milestone 15's broken canary build, a short-window rule running the identical burn-rate math confirmed `firing` (and Alertmanager receipt) while real k6 traffic hit it, then confirmed the alert stayed clear once reverted and re-tested under real traffic against the working build. See `docs/slo/milestone-16-slo-burn-rate-alerting.md` for the full timeline, including why a burn-rate alert clears the instant traffic stops regardless of whether the underlying defect was actually fixed — and why the "obvious" fault-injection approach (breaking Postgres directly) doesn't work for this specific measurement, since it fails the readiness probe before ever producing a clean 5xx to record.
+
+This is the sixteenth and, for now, final milestone in this lab's progression from a single-service Orders API to a multi-service, horizontally-scaled, GitOps-deployed, SLO-monitored distributed system.

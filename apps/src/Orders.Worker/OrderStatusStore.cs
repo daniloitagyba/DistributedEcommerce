@@ -16,14 +16,24 @@ public sealed class OrderStatusStore(NpgsqlDataSource dataSource, ResiliencePipe
 
     private readonly ResiliencePipeline _pipeline = pipelineProvider.GetPipeline(ResilienceExtensions.PostgresPipeline);
 
-    public async Task<bool> TryConfirmAsync(Guid orderId, CancellationToken cancellationToken)
+    public Task<bool> TryConfirmAsync(Guid orderId, CancellationToken cancellationToken)
+        => TryTransitionAsync(orderId, "Created", "Confirmed", cancellationToken);
+
+    public Task<bool> TryCancelAsync(Guid orderId, CancellationToken cancellationToken)
+        => TryTransitionAsync(orderId, "Created", "Cancelled", cancellationToken);
+
+    private async Task<bool> TryTransitionAsync(
+        Guid orderId,
+        string fromStatus,
+        string toStatus,
+        CancellationToken cancellationToken)
     {
         return await _pipeline.ExecuteAsync(async ct =>
         {
             await using var command = dataSource.CreateCommand(UpdateSql);
-            command.Parameters.AddWithValue("status", NpgsqlDbType.Varchar, "Confirmed");
+            command.Parameters.AddWithValue("status", NpgsqlDbType.Varchar, toStatus);
             command.Parameters.AddWithValue("id", NpgsqlDbType.Uuid, orderId);
-            command.Parameters.AddWithValue("expected_status", NpgsqlDbType.Varchar, "Created");
+            command.Parameters.AddWithValue("expected_status", NpgsqlDbType.Varchar, fromStatus);
 
             return await command.ExecuteNonQueryAsync(ct) == 1;
         }, cancellationToken);

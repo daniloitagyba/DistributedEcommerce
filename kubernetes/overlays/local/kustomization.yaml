@@ -10,6 +10,8 @@ images:
     newTag: milestone-7
   - name: local-distributed-lab/orders-worker
     newTag: milestone-7
+  - name: local-distributed-lab/payments-service
+    newTag: milestone-7
 patches:
   - target:
       kind: Deployment
@@ -26,8 +28,22 @@ patches:
         path: /spec/template/spec/containers/0/imagePullPolicy
         value: Never
   - target:
+      kind: Deployment
+      name: payments-service
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never
+  - target:
       kind: Job
       name: orders-migrations-m7
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never
+  - target:
+      kind: Job
+      name: payments-migrations-m12
     patch: |-
       - op: replace
         path: /spec/template/spec/containers/0/imagePullPolicy

@@ -180,11 +180,27 @@ const profiles = {
       accepted_duration: ['p(95)<1500'],
     },
   },
+  saga: {
+    scenarios: {
+      orders: {
+        executor: 'constant-vus',
+        vus: 10,
+        duration: '30s',
+        gracefulStop: '25s',
+      },
+    },
+    thresholds: {
+      checks: ['rate>0.99'],
+      http_req_failed: ['rate<0.01'],
+      saga_converged_rate: ['rate>0.99'],
+      saga_correct_outcome_rate: ['rate==1'],
+    },
+  },
 };
 
 if (!profiles[profileName]) {
   throw new Error(
-    `Unsupported PROFILE "${profileName}". Use smoke, baseline, autoscale, resilience, stress, soak, cache, chaos, or overload.`,
+    `Unsupported PROFILE "${profileName}". Use smoke, baseline, autoscale, resilience, stress, soak, cache, chaos, overload, or saga.`,
   );
 }
 
@@ -205,6 +221,13 @@ const cacheHitRate = new Rate('cache_hit_rate');
 const rateLimitedRate = new Rate('rate_limited_rate');
 const serverErrorRate = new Rate('server_error_rate');
 const acceptedDuration = new Trend('accepted_duration');
+const sagaConvergedRate = new Rate('saga_converged_rate');
+const sagaCorrectOutcomeRate = new Rate('saga_correct_outcome_rate');
+const sagaConvergenceDuration = new Trend('saga_convergence_duration_ms');
+
+const SAGA_DECLINE_THRESHOLD = 1000;
+const SAGA_POLL_ATTEMPTS = 40;
+const SAGA_POLL_DELAY_SECONDS = 0.5;
 
 const CACHE_SEED_POOL_SIZE = 15;
 
@@ -252,7 +275,77 @@ export default function (data) {
     return;
   }
 
+  if (profileName === 'saga') {
+    sagaWorkload();
+    return;
+  }
+
   ordersWorkload();
+}
+
+function sagaWorkload() {
+  const iterationId = `${runId}-${exec.vu.idInTest}-${exec.scenario.iterationInTest}`;
+  const shouldDecline = exec.scenario.iterationInTest % 2 === 1;
+  const amount = shouldDecline ? SAGA_DECLINE_THRESHOLD + 500 : SAGA_DECLINE_THRESHOLD - 500;
+  const expectedStatus = shouldDecline ? 'Cancelled' : 'Confirmed';
+
+  const payload = JSON.stringify({
+    customerId: `saga-customer-${iterationId}`,
+    amount,
+    currency: 'BRL',
+  });
+
+  const createResponse = http.post(`${baseUrl}/orders`, payload, {
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Correlation-ID': `k6-saga-${iterationId}`,
+    },
+    tags: {
+      endpoint: 'create-order',
+      name: 'POST /orders',
+    },
+    timeout: '10s',
+  });
+
+  const created = check(createResponse, {
+    'saga order creation returns 201': (res) => res.status === 201,
+  });
+  if (!created) {
+    sagaConvergedRate.add(false);
+    sagaCorrectOutcomeRate.add(false);
+    sleep(1);
+    return;
+  }
+
+  const orderId = createResponse.json('id');
+  const startedAt = Date.now();
+
+  for (let attempt = 0; attempt < SAGA_POLL_ATTEMPTS; attempt += 1) {
+    sleep(SAGA_POLL_DELAY_SECONDS);
+
+    const getResponse = http.get(`${baseUrl}/orders/${orderId}`, {
+      tags: {
+        endpoint: 'get-order',
+        name: 'GET /orders/:id',
+      },
+      timeout: '10s',
+    });
+
+    if (getResponse.status !== 200) {
+      continue;
+    }
+
+    const status = getResponse.json('status');
+    if (status === 'Confirmed' || status === 'Cancelled') {
+      sagaConvergenceDuration.add(Date.now() - startedAt);
+      sagaConvergedRate.add(true);
+      sagaCorrectOutcomeRate.add(status === expectedStatus);
+      return;
+    }
+  }
+
+  sagaConvergedRate.add(false);
+  sagaCorrectOutcomeRate.add(false);
 }
 
 function overloadWorkload() {

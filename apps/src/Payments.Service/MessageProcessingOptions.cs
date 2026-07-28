@@ -1,4 +1,4 @@
-namespace Orders.Worker;
+namespace Payments.Service;
 
 public sealed class MessageProcessingOptions
 {

@@ -1,6 +1,6 @@
 # Local Distributed Systems Lab
 
-This repository is a practical distributed systems laboratory running on an Ubuntu server. Milestone 11 adds token-bucket rate limiting to the Orders API and proves it sheds overload (429s, fast) without real failures or accepted-request degradation.
+This repository is a practical distributed systems laboratory running on an Ubuntu server. Milestone 12 adds a second service, **Payments.Service**, and a real choreographed saga: orders are approved or declined by an independent service with its own database, coordinating purely through Kafka events.
 
 ## Architecture
 
@@ -16,10 +16,19 @@ Mac client
                                                         +-> Kafka orders.created.v1
                                                                   |
                                                                   +-> Orders.Worker pod
+                                                                  |     |
+                                                                  |     +-> PostgreSQL Inbox
+                                                                  |     +-> Kafka orders.created.dlq.v1
+                                                                  |
+                                                                  +-> Payments.Service pod
                                                                         |
-                                                                        +-> PostgreSQL Inbox + order status
-                                                                        +-> Redis (cache invalidation)
-                                                                        +-> Kafka orders.created.dlq.v1
+                                                                        +-> PostgreSQL (payments + outbox, own database)
+                                                                        +-> Kafka payments.result.v1
+                                                                              |
+                                                                              +-> Orders.Worker pod (payment-result consumer)
+                                                                                    |
+                                                                                    +-> PostgreSQL order status (Confirmed/Cancelled)
+                                                                                    +-> Redis (cache invalidation)
 
 K3s applications -> OTLP -> OpenTelemetry Collector -> Prometheus (metrics)
                                                     |-> Tempo (traces)
@@ -34,15 +43,17 @@ PostgreSQL, Kafka, Redis, Tempo, Loki, and the Collector have no host ports. Kaf
 
 ## Repository layout
 
-- `apps/src/BuildingBlocks`: event contracts, shared OpenTelemetry instrumentation, shared Redis wiring, and the Polly resilience pipelines.
+- `apps/src/BuildingBlocks`: event contracts, shared OpenTelemetry instrumentation, shared Redis wiring, the Polly resilience pipelines, and the shared retry-delay calculator.
 - `apps/src/Orders.Api`: order API, PostgreSQL persistence, transactional Outbox, migrations, Kafka producer, the Redis cache-aside layer, and token-bucket rate limiting, all wrapped with resilience pipelines.
-- `apps/src/Orders.Worker`: idempotent Kafka consumer, PostgreSQL Inbox, order status transitions, cache invalidation, bounded retries, and DLQ publisher, all wrapped with resilience pipelines.
+- `apps/src/Orders.Worker`: idempotent Kafka consumers (order creation and payment results), PostgreSQL Inbox, order status transitions, cache invalidation, bounded retries, and DLQ publishers, all wrapped with resilience pipelines.
+- `apps/src/Payments.Service`: independent payment-decision service with its own PostgreSQL database, transactional Outbox, and Kafka consumer/producer — the choreographed saga's second participant.
 - `apps/tests`: unit tests and PostgreSQL/Redis Testcontainers integration tests.
 - `compose`: external infrastructure, Toxiproxy for fault injection, and the optional legacy Compose application profile.
 - `docs/caching`: reviewed Redis cache-aside and invalidation reports.
 - `docs/load-shedding`: reviewed rate-limiting and overload reports.
 - `docs/performance`: versioned baseline reports and interpretation notes.
 - `docs/resilience`: reviewed autoscaling and controlled-failure reports.
+- `docs/saga`: reviewed choreographed-saga convergence and chaos reports.
 - `kubernetes/base`: reusable application, migration, health, security, resource, and network-policy manifests.
 - `kubernetes/overlays/local`: the K3s-to-Compose endpoints and local image policy.
 - `load-tests/k6`: versioned workload behavior, profiles, and thresholds.
@@ -144,6 +155,7 @@ Available profiles:
 - `cache`: seeds a pool of orders, then holds 10 VUs for 30 seconds reading only, to measure cache hit ratio and cached-read latency.
 - `chaos`: holds 5 VUs for 40 seconds with relaxed latency thresholds, used by `scripts/resilience-chaos.sh` while a fault is injected through Toxiproxy.
 - `overload`: paced ramp to 300 VUs for 30 seconds, deliberately exceeding capacity to exercise rate limiting and load shedding.
+- `saga`: creates orders alternating above/below the payment decline threshold, polling each until it converges to `Confirmed` or `Cancelled`.
 
 Run the conservative profiles:
 
@@ -251,4 +263,10 @@ Every call to PostgreSQL, Kafka, and Redis goes through a named Polly pipeline (
 
 Tuning this required two real fixes, documented in `docs/load-shedding/milestone-11-load-shedding.md`: an initial generous burst setting let a simulated thundering herd overwhelm PostgreSQL before steady-state throttling caught up (real 5xx errors, not just 429s), and PostgreSQL's `max_connections` (set to 50 in an earlier milestone) briefly exhausted under HPA-scaled connection pooling — raised to 100. The final settings shed 83%+ of a deliberate 300-VU overload with zero real failures and accepted-request p95 under 10 ms, while leaving Milestone 8's `autoscale` acceptance suite passing at 100%.
 
-The next milestone can add a second service (Payments) consuming order events with a choreographed saga, building on the resilience and load-shedding primitives introduced so far.
+## Choreographed saga
+
+`Payments.Service` is a second, independently deployed service with its own PostgreSQL database (`payments`, same Postgres instance, no cross-service joins). It consumes `orders.created.v1` on its own consumer group, decides approve/decline with a deterministic rule (amount ≤ `PaymentDecision:DeclineAmountThreshold`, default 1,000), and publishes `PaymentDecided` to `payments.result.v1` through the same transactional-Outbox pattern Orders.Api already uses. A new consumer inside Orders.Worker (`PaymentResultConsumer`) picks that up and transitions the order to `Confirmed` or `Cancelled` — there is no synchronous call anywhere in this flow; the two services coordinate purely through events.
+
+`scripts/k6-run.sh saga` proves convergence (100% of orders reach a terminal state, 100% match the expected outcome, ~750 ms average). `scripts/saga-chaos-test.sh` proves the failure story: killing Payments.Service mid-flight never fails order creation (orders simply stay `Created`, no partial state), and every order converges correctly once it recovers. See `docs/saga/milestone-12-payments-saga.md` for the full results, including three real operational bugs found (and fixed) by actually running this against the live deployment rather than trusting it on paper.
+
+The next milestone can add CQRS read projections over these events, measuring how far the read model lags behind the write side under load.

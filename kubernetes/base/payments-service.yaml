@@ -1,9 +1,9 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: orders-worker
+  name: payments-service
   labels:
-    app.kubernetes.io/name: orders-worker
+    app.kubernetes.io/name: payments-service
     app.kubernetes.io/component: worker
 spec:
   replicas: 1
@@ -12,11 +12,11 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      app.kubernetes.io/name: orders-worker
+      app.kubernetes.io/name: payments-service
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: orders-worker
+        app.kubernetes.io/name: payments-service
         app.kubernetes.io/component: worker
     spec:
       automountServiceAccountToken: false
@@ -26,31 +26,29 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: orders-worker
-          image: local-distributed-lab/orders-worker:latest
+        - name: payments-service
+          image: local-distributed-lab/payments-service:latest
           imagePullPolicy: IfNotPresent
           env:
             - name: ASPNETCORE_ENVIRONMENT
               value: Production
-            - name: ConnectionStrings__Orders
+            - name: ConnectionStrings__Payments
               valueFrom:
                 secretKeyRef:
                   name: orders-runtime
-                  key: orders-connection-string
+                  key: payments-connection-string
             - name: Kafka__BootstrapServers
               value: kafka:9092
             - name: Kafka__OrderCreatedTopic
               value: orders.created.v1
+            - name: Kafka__PaymentResultTopic
+              value: payments.result.v1
             - name: Kafka__DeadLetterTopic
-              value: orders.created.dlq.v1
+              value: payments.decisions.dlq.v1
             - name: Kafka__ConsumerGroup
-              value: orders-worker
+              value: payments-service
             - name: Kafka__ClientId
-              value: orders-worker-k3s
-            - name: PaymentResultKafka__BootstrapServers
-              value: kafka:9092
-            - name: Redis__ConnectionString
-              value: redis:6379
+              value: payments-service-k3s
             - name: InstanceId
               valueFrom:
                 fieldRef:

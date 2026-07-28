@@ -7,57 +7,53 @@ using Microsoft.Extensions.Options;
 
 namespace Orders.Worker;
 
-public enum MessageProcessingResult
-{
-    Processed,
-    Duplicate
-}
-
-public sealed class InvalidOrderMessageException(string message, Exception? innerException = null)
+public sealed class InvalidPaymentResultMessageException(string message, Exception? innerException = null)
     : Exception(message, innerException);
 
-public sealed class OrderMessageProcessor(
+public sealed class PaymentResultProcessor(
     InboxStore inboxStore,
-    IOptions<KafkaOptions> options,
-    ILogger<OrderMessageProcessor> logger)
+    OrderStatusStore orderStatusStore,
+    IOrderCacheInvalidator cacheInvalidator,
+    IOptions<PaymentResultKafkaOptions> options,
+    ILogger<PaymentResultProcessor> logger)
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
-    private readonly KafkaOptions _options = options.Value;
+    private readonly PaymentResultKafkaOptions _options = options.Value;
 
     public async Task<MessageProcessingResult> ProcessAsync(
         ConsumeResult<string, string> consumeResult,
         CancellationToken cancellationToken)
     {
-        var orderCreated = DeserializeAndValidate(consumeResult.Message.Value);
+        var paymentDecided = DeserializeAndValidate(consumeResult.Message.Value);
         var correlationId = GetHeader(consumeResult.Message.Headers, MessagingHeaders.CorrelationId)
-            ?? orderCreated.CorrelationId;
+            ?? paymentDecided.CorrelationId;
         var traceParent = GetHeader(consumeResult.Message.Headers, MessagingHeaders.TraceParent);
         var traceState = GetHeader(consumeResult.Message.Headers, MessagingHeaders.TraceState);
 
         using var activity = OrdersTelemetry.StartActivity(
-            "orders.process",
+            "orders.payment_result.process",
             ActivityKind.Consumer,
             traceParent,
             traceState);
         activity?.SetTag("messaging.system", "kafka");
         activity?.SetTag("messaging.destination.name", consumeResult.Topic);
         activity?.SetTag("messaging.operation.type", "process");
-        activity?.SetTag("messaging.message.id", orderCreated.EventId);
-        activity?.SetTag("order.id", orderCreated.OrderId);
+        activity?.SetTag("messaging.message.id", paymentDecided.EventId);
+        activity?.SetTag("order.id", paymentDecided.OrderId);
+        activity?.SetTag("payment.approved", paymentDecided.Approved);
         activity?.SetTag("correlation.id", correlationId);
 
         using var scope = logger.BeginScope(new Dictionary<string, object?>
         {
             ["CorrelationId"] = correlationId,
-            ["EventId"] = orderCreated.EventId,
-            ["OrderId"] = orderCreated.OrderId,
+            ["EventId"] = paymentDecided.EventId,
+            ["OrderId"] = paymentDecided.OrderId,
             ["TraceId"] = activity?.TraceId.ToString() ?? string.Empty
         });
 
-        await Task.Delay(TimeSpan.FromMilliseconds(25), cancellationToken);
         var inserted = await inboxStore.TryRecordAsync(
             _options.ConsumerGroup,
-            orderCreated.EventId,
+            paymentDecided.EventId,
             consumeResult.Topic,
             consumeResult.Partition.Value,
             consumeResult.Offset.Value,
@@ -69,39 +65,50 @@ public sealed class OrderMessageProcessor(
         {
             OrdersTelemetry.RecordProcessed("duplicate");
             OrdersTelemetry.RecordInboxDuplicate(_options.ConsumerGroup);
-            WorkerLog.Duplicate(logger, orderCreated.EventId, _options.ConsumerGroup);
+            WorkerLog.Duplicate(logger, paymentDecided.EventId, _options.ConsumerGroup);
             return MessageProcessingResult.Duplicate;
         }
 
+        if (paymentDecided.Approved)
+        {
+            await orderStatusStore.TryConfirmAsync(paymentDecided.OrderId, cancellationToken);
+        }
+        else
+        {
+            await orderStatusStore.TryCancelAsync(paymentDecided.OrderId, cancellationToken);
+        }
+
+        await cacheInvalidator.InvalidateAsync(paymentDecided.OrderId, cancellationToken);
+
         OrdersTelemetry.RecordProcessed("success");
-        WorkerLog.Processed(logger, orderCreated.OrderId, orderCreated.EventId, correlationId);
+        WorkerLog.Processed(logger, paymentDecided.OrderId, paymentDecided.EventId, correlationId);
         return MessageProcessingResult.Processed;
     }
 
-    private static OrderCreated DeserializeAndValidate(string payload)
+    private static PaymentDecided DeserializeAndValidate(string payload)
     {
-        OrderCreated orderCreated;
+        PaymentDecided paymentDecided;
         try
         {
-            orderCreated = JsonSerializer.Deserialize<OrderCreated>(payload, SerializerOptions)
-                ?? throw new JsonException("The Kafka message did not contain an OrderCreated event.");
+            paymentDecided = JsonSerializer.Deserialize<PaymentDecided>(payload, SerializerOptions)
+                ?? throw new JsonException("The Kafka message did not contain a PaymentDecided event.");
         }
         catch (JsonException exception)
         {
-            throw new InvalidOrderMessageException("The Kafka message is not a valid OrderCreated event.", exception);
+            throw new InvalidPaymentResultMessageException("The Kafka message is not a valid PaymentDecided event.", exception);
         }
 
-        if (orderCreated.EventId == Guid.Empty || orderCreated.OrderId == Guid.Empty)
+        if (paymentDecided.EventId == Guid.Empty || paymentDecided.OrderId == Guid.Empty)
         {
-            throw new InvalidOrderMessageException("The OrderCreated event and order identifiers are required.");
+            throw new InvalidPaymentResultMessageException("The PaymentDecided event and order identifiers are required.");
         }
 
-        if (orderCreated.SchemaVersion != 1)
+        if (paymentDecided.SchemaVersion != 1)
         {
-            throw new InvalidOrderMessageException($"Unsupported OrderCreated schema version {orderCreated.SchemaVersion}.");
+            throw new InvalidPaymentResultMessageException($"Unsupported PaymentDecided schema version {paymentDecided.SchemaVersion}.");
         }
 
-        return orderCreated;
+        return paymentDecided;
     }
 
     private static string? GetHeader(Headers headers, string key)

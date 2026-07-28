@@ -8,6 +8,8 @@ resources:
   - orders-api-hpa.yaml
   - orders-worker.yaml
   - migration-job.yaml
+  - payments-service.yaml
+  - payments-migration-job.yaml
   - network-policies.yaml
 labels:
   - pairs:

@@ -3,6 +3,7 @@
     <Project Path="src/BuildingBlocks/BuildingBlocks.csproj" />
     <Project Path="src/Orders.Api/Orders.Api.csproj" />
     <Project Path="src/Orders.Worker/Orders.Worker.csproj" />
+    <Project Path="src/Payments.Service/Payments.Service.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Orders.IntegrationTests/Orders.IntegrationTests.csproj" />

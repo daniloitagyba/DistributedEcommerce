@@ -22,6 +22,7 @@
     <ProjectReference Include="..\..\src\BuildingBlocks\BuildingBlocks.csproj" />
     <ProjectReference Include="..\..\src\Orders.Api\Orders.Api.csproj" />
     <ProjectReference Include="..\..\src\Orders.Worker\Orders.Worker.csproj" />
+    <ProjectReference Include="..\..\src\Payments.Service\Payments.Service.csproj" />
   </ItemGroup>
 
 </Project>

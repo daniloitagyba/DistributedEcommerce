@@ -718,6 +718,71 @@
       ],
       "title": "Load shedding: accepted vs rate limited",
       "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 57 },
+      "id": 18,
+      "options": {
+        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum(rate(payments_decided_total{approved=\"true\"}[1m]))",
+          "legendFormat": "approved",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "editorMode": "code",
+          "expr": "sum(rate(payments_decided_total{approved=\"false\"}[1m]))",
+          "legendFormat": "declined",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Saga: payment decisions (approved vs declined)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 57 },
+      "id": 19,
+      "options": {
+        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum by (service_name) (rate(orders_processed_total{result=\"success\"}[1m]))",
+          "legendFormat": "{{service_name}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Saga: messages processed per service",
+      "type": "timeseries"
     }
   ],
   "refresh": "10s",
@@ -740,5 +805,5 @@
   "timezone": "browser",
   "title": "Orders Lab Overview",
   "uid": "orders-lab-overview",
-  "version": 6
+  "version": 7
 }

@@ -21,6 +21,7 @@ public static class OrdersTelemetry
     private static readonly Counter<long> CacheMissCounter = Meter.CreateCounter<long>("orders.cache.misses");
     private static readonly Counter<long> CacheBypassCounter = Meter.CreateCounter<long>("orders.cache.bypassed");
     private static readonly Counter<long> RateLimitedCounter = Meter.CreateCounter<long>("orders.rate_limited");
+    private static readonly Counter<long> PaymentDecidedCounter = Meter.CreateCounter<long>("payments.decided");
 
     public static Activity? StartActivity(
         string name,
@@ -90,5 +91,10 @@ public static class OrdersTelemetry
     public static void RecordRateLimited()
     {
         RateLimitedCounter.Add(1);
+    }
+
+    public static void RecordPaymentDecided(bool approved)
+    {
+        PaymentDecidedCounter.Add(1, new KeyValuePair<string, object?>("approved", approved));
     }
 }

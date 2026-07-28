@@ -11,10 +11,10 @@ results_root=${K6_RESULTS_DIRECTORY:-"$project_directory/artifacts/k6"}
 prometheus_url=${PROMETHEUS_URL:-http://127.0.0.1:9090}
 
 case "$profile" in
-  smoke | baseline | autoscale | resilience | stress | soak | cache | chaos | overload) ;;
+  smoke | baseline | autoscale | resilience | stress | soak | cache | chaos | overload | saga) ;;
   *)
     printf \
-      'Unsupported profile "%s". Use smoke, baseline, autoscale, resilience, stress, soak, cache, chaos, or overload.\n' \
+      'Unsupported profile "%s". Use smoke, baseline, autoscale, resilience, stress, soak, cache, chaos, overload, or saga.\n' \
       "$profile" >&2
     exit 1
     ;;

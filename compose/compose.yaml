@@ -144,6 +144,9 @@ services:
       - |
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic orders.created.v1 --partitions 3 --replication-factor 1 --config retention.ms=86400000
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic orders.created.dlq.v1 --partitions 1 --replication-factor 1 --config retention.ms=86400000
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic payments.result.v1 --partitions 3 --replication-factor 1 --config retention.ms=86400000
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic payments.decisions.dlq.v1 --partitions 1 --replication-factor 1 --config retention.ms=86400000
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic payments.result.dlq.v1 --partitions 1 --replication-factor 1 --config retention.ms=86400000
     networks:
       - backend
     mem_limit: 256m
@@ -211,6 +214,32 @@ services:
       kafka-init:
         condition: service_completed_successfully
       migrations:
+        condition: service_completed_successfully
+    networks:
+      - backend
+    mem_limit: 256m
+    cpus: 0.50
+    stop_grace_period: 30s
+
+  payments-service:
+    profiles: ["compose-apps"]
+    image: local-distributed-lab/payments-service:milestone-7
+    build:
+      context: ..
+      dockerfile: apps/src/Payments.Service/Dockerfile
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Payments: Host=postgres;Port=5432;Database=payments;Username=orders;Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      Kafka__BootstrapServers: kafka:9092
+      Kafka__OrderCreatedTopic: orders.created.v1
+      Kafka__PaymentResultTopic: payments.result.v1
+      Kafka__DeadLetterTopic: payments.decisions.dlq.v1
+      Kafka__ConsumerGroup: payments-service
+      Kafka__ClientId: payments-service-1
+      InstanceId: payments-service-1
+    depends_on:
+      kafka-init:
         condition: service_completed_successfully
     networks:
       - backend

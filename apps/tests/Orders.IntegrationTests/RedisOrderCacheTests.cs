@@ -1,7 +1,8 @@
 using BuildingBlocks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
-using Orders.Api.Caching;
+using Orders.Application.Ports;
+using Orders.Infrastructure.Caching;
 using Polly.Registry;
 using StackExchange.Redis;
 using Testcontainers.Redis;

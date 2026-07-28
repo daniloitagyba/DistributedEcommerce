@@ -1,7 +1,6 @@
-using Microsoft.EntityFrameworkCore;
 using Orders.Api.Contracts;
-using Orders.Api.Data;
 using Orders.Api.RateLimiting;
+using Orders.Application.UseCases.ListOrderSummaries;
 
 namespace Orders.Api.Endpoints;
 
@@ -12,8 +11,6 @@ namespace Orders.Api.Endpoints;
 /// </summary>
 public static class OrderSummaryEndpoints
 {
-    private const int MaximumLimit = 100;
-
     public static IEndpointRouteBuilder MapOrderSummaryEndpoints(this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapGet("/orders/summary", ListAsync)
@@ -24,33 +21,23 @@ public static class OrderSummaryEndpoints
     }
 
     private static async Task<IResult> ListAsync(
-        OrdersDbContext dbContext,
+        ListOrderSummariesHandler handler,
         string? status,
         int? limit,
         CancellationToken cancellationToken)
     {
-        var effectiveLimit = Math.Clamp(limit ?? 20, 1, MaximumLimit);
+        var summaries = await handler.HandleAsync(status, limit, cancellationToken);
 
-        var query = dbContext.OrderSummaries.AsNoTracking();
-        if (!string.IsNullOrWhiteSpace(status))
-        {
-            query = query.Where(item => item.Status == status);
-        }
+        var response = summaries.Select(item => new OrderSummaryResponse(
+            item.OrderId,
+            item.CustomerId,
+            item.Amount,
+            item.Currency,
+            item.Status,
+            item.OrderCreatedAt,
+            item.DecidedAt,
+            item.ProjectedAt));
 
-        var summaries = await query
-            .OrderByDescending(item => item.ProjectedAt)
-            .Take(effectiveLimit)
-            .Select(item => new OrderSummaryResponse(
-                item.OrderId,
-                item.CustomerId,
-                item.Amount,
-                item.Currency,
-                item.Status,
-                item.OrderCreatedAt,
-                item.DecidedAt,
-                item.ProjectedAt))
-            .ToListAsync(cancellationToken);
-
-        return Results.Ok(summaries);
+        return Results.Ok(response);
     }
 }

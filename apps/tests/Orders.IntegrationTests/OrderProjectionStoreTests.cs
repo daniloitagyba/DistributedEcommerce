@@ -2,7 +2,7 @@ using BuildingBlocks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
-using Orders.Api.Data;
+using Orders.Infrastructure.Data;
 using Orders.Worker;
 using Polly.Registry;
 using Testcontainers.PostgreSql;

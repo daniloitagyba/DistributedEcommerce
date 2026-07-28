@@ -1,4 +1,4 @@
-using Orders.Api.Domain;
+using Orders.Domain;
 
 namespace Orders.UnitTests;
 

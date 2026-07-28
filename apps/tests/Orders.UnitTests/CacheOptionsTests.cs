@@ -1,4 +1,4 @@
-using Orders.Api.Caching;
+using Orders.Infrastructure.Caching;
 
 namespace Orders.UnitTests;
 

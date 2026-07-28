@@ -1,15 +1,13 @@
 using BuildingBlocks;
-using Confluent.Kafka;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
-using Orders.Api.Caching;
-using Orders.Api.Data;
 using Orders.Api.Endpoints;
-using Orders.Api.Health;
-using Orders.Api.Messaging;
 using Orders.Api.Middleware;
 using Orders.Api.RateLimiting;
+using Orders.Application;
+using Orders.Infrastructure;
+using Orders.Infrastructure.Data;
+using Orders.Infrastructure.Health;
 
 var builder = WebApplication.CreateBuilder(args);
 var instanceId = builder.Configuration["InstanceId"] ?? Environment.MachineName;
@@ -30,53 +28,13 @@ builder.Services.AddOptions<KafkaOptions>()
     .Validate(options => !string.IsNullOrWhiteSpace(options.BootstrapServers), "Kafka bootstrap servers are required.")
     .Validate(options => !string.IsNullOrWhiteSpace(options.OrderCreatedTopic), "Kafka topic is required.")
     .ValidateOnStart();
-builder.Services.AddOptions<OutboxOptions>()
-    .Bind(builder.Configuration.GetSection(OutboxOptions.SectionName))
-    .Validate(options => options.BatchSize is > 0 and <= 100, "Outbox batch size must be between 1 and 100.")
-    .Validate(options => options.PollIntervalMilliseconds >= 100, "Outbox poll interval must be at least 100 milliseconds.")
-    .Validate(options => options.MaximumRetryDelaySeconds > 0, "Outbox maximum retry delay must be positive.")
-    .ValidateOnStart();
-builder.Services.AddOptions<CacheOptions>()
-    .Bind(builder.Configuration.GetSection(CacheOptions.SectionName))
-    .Validate(options => options.TimeToLiveSeconds > 0, "Cache time-to-live must be positive.")
-    .Validate(options => options.LockTimeoutMilliseconds > 0, "Cache lock timeout must be positive.")
-    .Validate(options => options.LockRetryAttempts >= 0, "Cache lock retry attempts must not be negative.")
-    .Validate(options => options.LockRetryDelayMilliseconds > 0, "Cache lock retry delay must be positive.")
-    .ValidateOnStart();
 
 var connectionString = builder.Configuration.GetConnectionString("Orders")
     ?? throw new InvalidOperationException("Connection string 'Orders' is required.");
 
-builder.Services.AddDbContext<OrdersDbContext>(options => options.UseNpgsql(connectionString));
-
-builder.Services.AddSingleton<IProducer<string, string>>(serviceProvider =>
-{
-    var options = serviceProvider.GetRequiredService<IOptions<KafkaOptions>>().Value;
-    var instanceId = builder.Configuration["InstanceId"] ?? Environment.MachineName;
-    var config = new ProducerConfig
-    {
-        BootstrapServers = options.BootstrapServers,
-        ClientId = $"{options.ClientId}-{instanceId}",
-        Acks = Acks.All,
-        EnableIdempotence = true,
-        MessageTimeoutMs = 10_000,
-        SocketTimeoutMs = 10_000
-    };
-
-    return new ProducerBuilder<string, string>(config).Build();
-});
-builder.Services.AddSingleton<IAdminClient>(serviceProvider =>
-{
-    var options = serviceProvider.GetRequiredService<IOptions<KafkaOptions>>().Value;
-    var config = new AdminClientConfig { BootstrapServers = options.BootstrapServers };
-    return new AdminClientBuilder(config).Build();
-});
-builder.Services.AddOrdersResilience();
+builder.Services.AddOrdersApplication();
+builder.Services.AddOrdersInfrastructure(builder.Configuration, connectionString, instanceId);
 builder.Services.AddOrdersRateLimiting(builder.Configuration);
-builder.Services.AddSingleton<IOrderEventPublisher, KafkaOrderEventPublisher>();
-builder.Services.AddHostedService<OutboxPublisher>();
-builder.Services.AddOrdersRedis(builder.Configuration);
-builder.Services.AddSingleton<IOrderCache, RedisOrderCache>();
 builder.Services.AddHealthChecks()
     .AddCheck<PostgresHealthCheck>("postgres", tags: ["ready"])
     .AddCheck<KafkaHealthCheck>("kafka", tags: ["ready"])

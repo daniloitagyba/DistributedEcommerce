@@ -3,10 +3,16 @@ WORKDIR /src
 
 COPY Directory.Build.props global.json ./
 COPY apps/src/BuildingBlocks/BuildingBlocks.csproj apps/src/BuildingBlocks/
+COPY apps/src/Orders.Domain/Orders.Domain.csproj apps/src/Orders.Domain/
+COPY apps/src/Orders.Application/Orders.Application.csproj apps/src/Orders.Application/
+COPY apps/src/Orders.Infrastructure/Orders.Infrastructure.csproj apps/src/Orders.Infrastructure/
 COPY apps/src/Orders.Api/Orders.Api.csproj apps/src/Orders.Api/
 RUN dotnet restore apps/src/Orders.Api/Orders.Api.csproj
 
 COPY apps/src/BuildingBlocks/ apps/src/BuildingBlocks/
+COPY apps/src/Orders.Domain/ apps/src/Orders.Domain/
+COPY apps/src/Orders.Application/ apps/src/Orders.Application/
+COPY apps/src/Orders.Infrastructure/ apps/src/Orders.Infrastructure/
 COPY apps/src/Orders.Api/ apps/src/Orders.Api/
 RUN dotnet publish apps/src/Orders.Api/Orders.Api.csproj \
     --configuration Release \

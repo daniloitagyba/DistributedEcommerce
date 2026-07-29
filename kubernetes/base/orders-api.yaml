@@ -141,7 +141,11 @@ spec:
               cpu: 200m
               memory: 128Mi
             limits:
-              cpu: 500m
+              # Pyroscope's native profiler refuses to start below a 1-core
+              # CPU limit ("CPU limit is too low for the profiler to work
+              # properly" - logged at container startup with DD_TRACE_DEBUG=1).
+              # Was 500m before continuous profiling was added.
+              cpu: 1000m
               memory: 256Mi
           securityContext:
             allowPrivilegeEscalation: false

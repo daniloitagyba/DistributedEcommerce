@@ -1,0 +1,37 @@
+# Milestone 25: requires every image pushed by this repo's own CI pipeline
+# (.github/workflows/ci.yml) to carry a valid cosign keyless signature
+# before Kyverno's admission controller will let a pod referencing it be
+# created. The signing identity is pinned to the exact GitHub Actions OIDC
+# subject the workflow runs under - not just "signed by someone" - so a
+# signature produced by any other workflow, fork, or branch is rejected.
+#
+# Applied imperatively (kubectl apply), the same way Linkerd and Sealed
+# Secrets were installed in Milestones 17/24: this is cluster infrastructure
+# configuration, not an application manifest Argo CD reconciles.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: verify-local-distributed-lab-image-signatures
+spec:
+  validationFailureAction: Enforce
+  background: false
+  webhookTimeoutSeconds: 30
+  rules:
+    - name: verify-cosign-keyless-signature
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      verifyImages:
+        - imageReferences:
+            - "ghcr.io/daniloitagyba/local-distributed-lab/*"
+          mutateDigest: true
+          attestors:
+            - count: 1
+              entries:
+                - keyless:
+                    subject: "https://github.com/daniloitagyba/local-distributed-lab/.github/workflows/ci.yml@refs/heads/main"
+                    issuer: "https://token.actions.githubusercontent.com"
+                    rekor:
+                      url: https://rekor.sigstore.dev

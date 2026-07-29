@@ -4,9 +4,11 @@ using BuildingBlocks;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.EntityFrameworkCore;
 using Orders.Api.Authorization;
 using Orders.Api.Endpoints;
+using Orders.Api.Grpc;
 using Orders.Api.Middleware;
 using Orders.Api.RateLimiting;
 using Orders.Application;
@@ -16,6 +18,41 @@ using Orders.Infrastructure.Health;
 
 var builder = WebApplication.CreateBuilder(args);
 var instanceId = builder.Configuration["InstanceId"] ?? Environment.MachineName;
+
+// Milestone 30: gRPC gets its own port (8081) rather than sharing 8080 with
+// REST. Tried sharing first - it doesn't work here: the Milestone 26
+// AuthorizationPolicy's Server resource for port 8080 hardcodes
+// proxyProtocol: HTTP/1, so Linkerd's proxy rejects genuine HTTP/2 (gRPC)
+// traffic on that port with "HTTP_1_1_REQUIRED" before it ever reaches
+// Kestrel. A dedicated HTTP/2-only port (with its own Server resource
+// declaring proxyProtocol: HTTP/2 or gRPC) is also just the standard
+// real-world pattern - most gRPC services aren't multiplexed onto the same
+// port as a REST API anyway. This service has no TLS in front of it either
+// way (Linkerd terminates/originates mTLS transparently at the proxy - the
+// app itself always speaks plain HTTP, matching every other service in
+// this lab), so both ports are cleartext: HTTP/1.1 on 8080, h2c on 8081.
+// Explicit ListenAnyIP calls for both ports, not ConfigureEndpointDefaults
+// relying on ASPNETCORE_URLS for the REST port - the moment Kestrel is
+// configured with any explicit Listen/ListenAnyIP call, it stops honoring
+// the ASPNETCORE_URLS-derived endpoint entirely (logged as "Overriding
+// address(es) ... Binding to endpoints defined via IConfiguration and/or
+// UseKestrel() instead"), silently leaving 8080 unbound - found because
+// the pod's readiness probe (which targets 8080) started failing and
+// crash-looping it, and the boot log showed only "Now listening on:
+// http://[::]:8081".
+const int RestPort = 8080;
+const int GrpcPort = 8081;
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.ListenAnyIP(RestPort, listenOptions =>
+    {
+        listenOptions.Protocols = HttpProtocols.Http1;
+    });
+    options.ListenAnyIP(GrpcPort, listenOptions =>
+    {
+        listenOptions.Protocols = HttpProtocols.Http2;
+    });
+});
 
 builder.Logging.ClearProviders();
 builder.Logging.AddJsonConsole(options =>
@@ -40,6 +77,7 @@ var connectionString = builder.Configuration.GetConnectionString("Orders")
 builder.Services.AddOrdersApplication();
 builder.Services.AddOrdersInfrastructure(builder.Configuration, connectionString, instanceId);
 builder.Services.AddOrdersRateLimiting(builder.Configuration);
+builder.Services.AddGrpc();
 
 // Milestone 26: bearer tokens are validated against Keycloak's own JWKS,
 // fetched from its OIDC discovery document at startup and refreshed
@@ -127,6 +165,7 @@ app.MapGet("/", () => Results.Ok(new { service = "Orders.Api", instanceId }));
 app.MapOrderEndpoints();
 app.MapOrderSummaryEndpoints();
 app.MapOrderHistoryEndpoints();
+app.MapGrpcService<OrderQueryGrpcService>();
 
 await app.RunAsync();
 

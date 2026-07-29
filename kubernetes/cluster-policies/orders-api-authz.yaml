@@ -42,3 +42,35 @@ spec:
     - group: policy.linkerd.io
       kind: MeshTLSAuthentication
       name: orders-worker-identity
+---
+# Milestone 30: orders-api's gRPC endpoint - a separate Server because it's
+# a separate port with a separate protocol declaration (proxyProtocol:
+# gRPC vs. the REST Server's HTTP/1 above; the two can't be merged onto one
+# Server resource). Same allowed identity, same reasoning as the REST
+# Server.
+apiVersion: policy.linkerd.io/v1beta3
+kind: Server
+metadata:
+  name: orders-api-grpc
+  namespace: orders-lab
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: orders-api
+  port: grpc
+  proxyProtocol: gRPC
+---
+apiVersion: policy.linkerd.io/v1alpha1
+kind: AuthorizationPolicy
+metadata:
+  name: orders-api-grpc-allow-orders-worker
+  namespace: orders-lab
+spec:
+  targetRef:
+    group: policy.linkerd.io
+    kind: Server
+    name: orders-api-grpc
+  requiredAuthenticationRefs:
+    - group: policy.linkerd.io
+      kind: MeshTLSAuthentication
+      name: orders-worker-identity

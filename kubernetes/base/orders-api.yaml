@@ -91,6 +91,9 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
+            - name: grpc
+              containerPort: 8081
+              protocol: TCP
           lifecycle:
             preStop:
               exec:
@@ -153,6 +156,10 @@ spec:
     - name: http
       port: 80
       targetPort: http
+    - name: grpc
+      port: 81
+      targetPort: grpc
+      appProtocol: grpc
       protocol: TCP
 ---
 apiVersion: policy/v1

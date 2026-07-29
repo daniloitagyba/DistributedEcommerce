@@ -21,6 +21,11 @@ spec:
     - ports:
         - protocol: TCP
           port: 8080
+        # Milestone 30: orders-api's gRPC endpoint, a separate port from the
+        # REST API's 8080 (see Program.cs's comment on why they can't share
+        # a port under the existing Milestone 26 Linkerd Server policy).
+        - protocol: TCP
+          port: 8081
         # Linkerd's CNI plugin DNATs inbound traffic on meshed pods to the
         # proxy's inbound port before this policy is evaluated (PREROUTING
         # runs ahead of the FORWARD-chain NetworkPolicy check), so kube-router

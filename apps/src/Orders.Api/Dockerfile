@@ -37,7 +37,6 @@ COPY --from=build --chown=$APP_UID:$APP_UID /app/publish .
 
 USER $APP_UID
 ENV ASPNETCORE_URLS=http://+:8080 \
-    DOTNET_EnableDiagnostics=0 \
     OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317 \
     OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
     OTEL_METRIC_EXPORT_INTERVAL=10000 \

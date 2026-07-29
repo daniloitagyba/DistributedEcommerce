@@ -7,7 +7,10 @@ using Orders.Domain;
 
 namespace Orders.Application.UseCases.CreateOrder;
 
-public sealed class CreateOrderHandler(IOrderRepository repository, ILogger<CreateOrderHandler> logger)
+public sealed class CreateOrderHandler(
+    IOrderRepository repository,
+    IIdempotencyStore idempotencyStore,
+    ILogger<CreateOrderHandler> logger)
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
 
@@ -19,6 +22,43 @@ public sealed class CreateOrderHandler(IOrderRepository repository, ILogger<Crea
             return new CreateOrderResult(null, Guid.Empty, errors);
         }
 
+        if (string.IsNullOrWhiteSpace(command.IdempotencyKey))
+        {
+            var (order, eventId) = await CreateAndPersistAsync(command, cancellationToken);
+            return new CreateOrderResult(order, eventId, errors);
+        }
+
+        Guid createdEventId = Guid.Empty;
+        var lookup = await idempotencyStore.GetOrCreateAsync(
+            command.IdempotencyKey,
+            async ct =>
+            {
+                var (order, eventId) = await CreateAndPersistAsync(command, ct);
+                createdEventId = eventId;
+                return ToCachedOrder(order);
+            },
+            cancellationToken);
+
+        if (!lookup.WasReplayed)
+        {
+            return new CreateOrderResult(
+                await repository.FindByIdAsync(lookup.Order!.Id, cancellationToken),
+                createdEventId,
+                errors);
+        }
+
+        CreateOrderLog.IdempotentReplay(logger, lookup.Order!.Id, command.IdempotencyKey, command.CorrelationId);
+        return new CreateOrderResult(
+            await repository.FindByIdAsync(lookup.Order!.Id, cancellationToken),
+            Guid.Empty,
+            errors,
+            WasReplayed: true);
+    }
+
+    private async Task<(Order Order, Guid EventId)> CreateAndPersistAsync(
+        CreateOrderCommand command,
+        CancellationToken cancellationToken)
+    {
         var customerId = CreateOrderCommandValidator.NormalizeCustomerId(command.CustomerId!);
         var currency = CreateOrderCommandValidator.NormalizeCurrency(command.Currency!);
         var createdAt = DateTimeOffset.UtcNow;
@@ -56,7 +96,12 @@ public sealed class CreateOrderHandler(IOrderRepository repository, ILogger<Crea
             command.InstanceId,
             command.CorrelationId);
 
-        return new CreateOrderResult(order, orderCreated.EventId, errors);
+        return (order, orderCreated.EventId);
+    }
+
+    private static CachedOrder ToCachedOrder(Order order)
+    {
+        return new CachedOrder(order.Id, order.CustomerId, order.Amount, order.Currency, order.Status, order.CreatedAt);
     }
 }
 
@@ -67,4 +112,10 @@ public sealed partial class CreateOrderLog
         Level = LogLevel.Information,
         Message = "Stored order {OrderId} and queued outbox event {EventId} from instance {InstanceId} with correlation {CorrelationId}")]
     public static partial void OrderAccepted(ILogger logger, Guid orderId, Guid eventId, string instanceId, string correlationId);
+
+    [LoggerMessage(
+        EventId = 1002,
+        Level = LogLevel.Information,
+        Message = "Replayed idempotent create for order {OrderId} using Idempotency-Key {IdempotencyKey} with correlation {CorrelationId}")]
+    public static partial void IdempotentReplay(ILogger logger, Guid orderId, string idempotencyKey, string correlationId);
 }

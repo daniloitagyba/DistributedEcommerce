@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using Orders.Application.Ports;
 using Orders.Infrastructure.Caching;
 using Orders.Infrastructure.Data;
+using Orders.Infrastructure.Idempotency;
 using Orders.Infrastructure.Messaging;
 
 namespace Orders.Infrastructure;
@@ -25,6 +26,13 @@ public static class InfrastructureServiceCollectionExtensions
             .Validate(options => options.LockTimeoutMilliseconds > 0, "Cache lock timeout must be positive.")
             .Validate(options => options.LockRetryAttempts >= 0, "Cache lock retry attempts must not be negative.")
             .Validate(options => options.LockRetryDelayMilliseconds > 0, "Cache lock retry delay must be positive.")
+            .ValidateOnStart();
+        services.AddOptions<IdempotencyOptions>()
+            .Bind(configuration.GetSection(IdempotencyOptions.SectionName))
+            .Validate(options => options.TimeToLiveHours > 0, "Idempotency time-to-live must be positive.")
+            .Validate(options => options.LockTimeoutMilliseconds > 0, "Idempotency lock timeout must be positive.")
+            .Validate(options => options.LockRetryAttempts >= 0, "Idempotency lock retry attempts must not be negative.")
+            .Validate(options => options.LockRetryDelayMilliseconds > 0, "Idempotency lock retry delay must be positive.")
             .ValidateOnStart();
         services.AddOptions<OutboxOptions>()
             .Bind(configuration.GetSection(OutboxOptions.SectionName))
@@ -65,6 +73,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IOrderSummaryRepository, Persistence.EfOrderSummaryRepository>();
         services.AddScoped<IOrderEventStoreRepository, Persistence.EfOrderEventStoreRepository>();
         services.AddSingleton<IOrderCache, RedisOrderCache>();
+        services.AddSingleton<IIdempotencyStore, RedisIdempotencyStore>();
         services.AddSingleton<IOrderEventPublisher, KafkaOrderEventPublisher>();
         services.AddHostedService<OutboxPublisher>();
 

@@ -20,6 +20,8 @@ public static class OrdersTelemetry
     private static readonly Counter<long> CacheHitCounter = Meter.CreateCounter<long>("orders.cache.hits");
     private static readonly Counter<long> CacheMissCounter = Meter.CreateCounter<long>("orders.cache.misses");
     private static readonly Counter<long> CacheBypassCounter = Meter.CreateCounter<long>("orders.cache.bypassed");
+    private static readonly Counter<long> IdempotentReplayCounter = Meter.CreateCounter<long>("orders.idempotency.replayed");
+    private static readonly Counter<long> IdempotencyBypassCounter = Meter.CreateCounter<long>("orders.idempotency.bypassed");
     private static readonly Counter<long> RateLimitedCounter = Meter.CreateCounter<long>("orders.rate_limited");
     private static readonly Counter<long> PaymentDecidedCounter = Meter.CreateCounter<long>("payments.decided");
     private static readonly Histogram<double> ProjectionLagHistogram = Meter.CreateHistogram<double>("orders.projection.lag_ms");
@@ -87,6 +89,16 @@ public static class OrdersTelemetry
     public static void RecordCacheBypass()
     {
         CacheBypassCounter.Add(1);
+    }
+
+    public static void RecordIdempotentReplay()
+    {
+        IdempotentReplayCounter.Add(1);
+    }
+
+    public static void RecordIdempotencyBypass()
+    {
+        IdempotencyBypassCounter.Add(1);
     }
 
     public static void RecordRateLimited()

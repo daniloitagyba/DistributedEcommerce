@@ -5,4 +5,5 @@ public sealed record CreateOrderCommand(
     decimal Amount,
     string? Currency,
     string CorrelationId,
-    string InstanceId);
+    string InstanceId,
+    string? IdempotencyKey = null);

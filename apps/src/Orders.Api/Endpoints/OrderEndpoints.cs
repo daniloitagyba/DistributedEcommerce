@@ -31,7 +31,8 @@ public static class OrderEndpoints
     {
         var correlationId = httpContext.GetCorrelationId();
         var instanceId = configuration["InstanceId"] ?? Environment.MachineName;
-        var command = new CreateOrderCommand(request.CustomerId, request.Amount, request.Currency, correlationId, instanceId);
+        var idempotencyKey = httpContext.Request.Headers["Idempotency-Key"].FirstOrDefault();
+        var command = new CreateOrderCommand(request.CustomerId, request.Amount, request.Currency, correlationId, instanceId, idempotencyKey);
 
         CreateOrderResult result;
         try
@@ -49,6 +50,12 @@ public static class OrderEndpoints
         }
 
         var response = ToResponse(result.Order!, correlationId, instanceId);
+        if (result.WasReplayed)
+        {
+            httpContext.Response.Headers["Idempotency-Replayed"] = "true";
+            return Results.Ok(response);
+        }
+
         return Results.Created($"/orders/{result.Order!.Id}", response);
     }
 

@@ -10,6 +10,7 @@ using Microsoft.Extensions.Options;
 using Payments.Service;
 using Payments.Service.Data;
 using Testcontainers.PostgreSql;
+using Testcontainers.Redpanda;
 
 namespace Orders.IntegrationTests;
 
@@ -21,20 +22,26 @@ public sealed class PaymentMessageProcessorTests : IAsyncLifetime, IDisposable
         .WithPassword("test-password-not-a-secret")
         .Build();
 
-    // Confluent.SchemaRegistry 2.15.0 ships no mock/in-memory client (unlike
-    // Testcontainers for Postgres/Redis above), and ISchemaRegistryClient has
-    // 24+ members - hand-rolling a fake risks subtly wrong behavior around
-    // schema IDs. This lab runs on a single host where the real Karapace
-    // instance (Milestone 19) is always up on the Compose network, so this
-    // points at it directly rather than faking it.
-    private readonly CachedSchemaRegistryClient _schemaRegistryClient =
-        new(new SchemaRegistryConfig { Url = "http://172.30.0.16:8081" });
+    // Confluent.SchemaRegistry 2.15.0 ships no mock/in-memory client, and
+    // ISchemaRegistryClient has 24+ members - hand-rolling a fake risks
+    // subtly wrong behavior around schema IDs. Redpanda bundles a
+    // Confluent-compatible schema registry in the same single container as
+    // its Kafka-API broker, so this gets a real, ephemeral, hermetic
+    // registry per test run instead of depending on a specific host's
+    // always-on Karapace instance (the previous approach, fine on a single
+    // personal server but unreachable from CI runners).
+    private readonly RedpandaContainer _redpanda =
+        new RedpandaBuilder("docker.redpanda.com/redpandadata/redpanda:v26.2.1").Build();
+    private CachedSchemaRegistryClient _schemaRegistryClient = null!;
 
     private ServiceProvider _serviceProvider = null!;
 
     public async Task InitializeAsync()
     {
-        await _postgres.StartAsync();
+        await Task.WhenAll(_postgres.StartAsync(), _redpanda.StartAsync());
+
+        _schemaRegistryClient = new CachedSchemaRegistryClient(
+            new SchemaRegistryConfig { Url = _redpanda.GetSchemaRegistryAddress() });
 
         var services = new ServiceCollection();
         services.AddDbContext<PaymentsDbContext>(options => options.UseNpgsql(_postgres.GetConnectionString()));
@@ -48,7 +55,7 @@ public sealed class PaymentMessageProcessorTests : IAsyncLifetime, IDisposable
     public async Task DisposeAsync()
     {
         await _serviceProvider.DisposeAsync();
-        await _postgres.DisposeAsync();
+        await Task.WhenAll(_postgres.DisposeAsync().AsTask(), _redpanda.DisposeAsync().AsTask());
     }
 
     public void Dispose()

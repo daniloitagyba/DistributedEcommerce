@@ -15,6 +15,9 @@ run_id=$(date -u +%Y%m%dT%H%M%SZ)
 test_directory="$results_root/$run_id-saga-chaos"
 mkdir -p "$test_directory"
 
+access_token=$("$script_directory/keycloak-get-token.sh")
+auth_header="Authorization: Bearer $access_token"
+
 scaled_down=false
 cleanup() {
   if [[ "$scaled_down" == true ]]; then
@@ -38,6 +41,7 @@ for attempt in $(seq 1 "$order_count"); do
   amount=$(( (attempt % 2 == 0) ? 1500 : 50 ))
   order_id=$(curl --silent --request POST "http://$service_ip/orders" \
     --header 'Content-Type: application/json' \
+    --header "$auth_header" \
     --header "X-Correlation-ID: saga-chaos-$run_id-$attempt" \
     --data "{\"customerId\":\"saga-chaos-customer\",\"amount\":${amount}.00,\"currency\":\"BRL\"}" |
     jq --raw-output '.id')
@@ -48,7 +52,7 @@ printf 'Verifying all %s orders remain Created while payments-service is down\n'
 sleep 3
 stuck_as_created=0
 while read -r order_id; do
-  status=$(curl --silent "http://$service_ip/orders/$order_id" | jq --raw-output '.status')
+  status=$(curl --silent --header "$auth_header" "http://$service_ip/orders/$order_id" | jq --raw-output '.status')
   if [[ "$status" == "Created" ]]; then
     stuck_as_created=$((stuck_as_created + 1))
   fi
@@ -71,7 +75,7 @@ converged=0
 for attempt in $(seq 1 30); do
   converged=0
   while read -r order_id; do
-    status=$(curl --silent "http://$service_ip/orders/$order_id" | jq --raw-output '.status')
+    status=$(curl --silent --header "$auth_header" "http://$service_ip/orders/$order_id" | jq --raw-output '.status')
     if [[ "$status" == "Confirmed" || "$status" == "Cancelled" ]]; then
       converged=$((converged + 1))
     fi

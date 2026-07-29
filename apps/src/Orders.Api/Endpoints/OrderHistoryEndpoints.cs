@@ -1,3 +1,4 @@
+using Orders.Api.Authorization;
 using Orders.Api.Contracts;
 using Orders.Api.RateLimiting;
 using Orders.Application.UseCases.GetOrderHistory;
@@ -17,7 +18,8 @@ public static class OrderHistoryEndpoints
     {
         endpoints.MapGet("/orders/{id:guid}/history", GetHistoryAsync)
             .WithTags("Orders")
-            .RequireRateLimiting(RateLimitingExtensions.OrdersPolicy);
+            .RequireRateLimiting(RateLimitingExtensions.OrdersPolicy)
+            .RequireAuthorization(OrdersAuthorizationPolicies.Read);
 
         return endpoints;
     }

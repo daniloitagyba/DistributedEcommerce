@@ -1,3 +1,4 @@
+using Orders.Api.Authorization;
 using Orders.Api.Contracts;
 using Orders.Api.Middleware;
 using Orders.Api.RateLimiting;
@@ -15,8 +16,8 @@ public static class OrderEndpoints
     {
         var group = endpoints.MapGroup("/orders").WithTags("Orders").RequireRateLimiting(RateLimitingExtensions.OrdersPolicy);
 
-        group.MapPost("", CreateAsync);
-        group.MapGet("/{id:guid}", GetByIdAsync);
+        group.MapPost("", CreateAsync).RequireAuthorization(OrdersAuthorizationPolicies.Write);
+        group.MapGet("/{id:guid}", GetByIdAsync).RequireAuthorization(OrdersAuthorizationPolicies.Read);
 
         return endpoints;
     }

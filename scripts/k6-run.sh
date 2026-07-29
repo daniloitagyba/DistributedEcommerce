@@ -173,12 +173,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
+access_token=$("$script_directory/keycloak-get-token.sh")
+
 printf 'Running k6 profile %s against %s\n' "$profile" "$base_url"
 set +e
 K6_NO_COLOR=true k6 run \
   --env "BASE_URL=$base_url" \
   --env "PROFILE=$profile" \
   --env "RUN_ID=$run_id" \
+  --env "ACCESS_TOKEN=$access_token" \
   --summary-export "$temporary_summary_file" \
   - <"$workload_file" 2>&1 |
   tee "$run_directory/k6.log"

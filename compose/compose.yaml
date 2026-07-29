@@ -197,6 +197,50 @@ services:
     cpus: 0.50
     stop_grace_period: 10s
 
+  # Milestone 26: the OIDC identity provider Orders.Api validates bearer
+  # tokens against. Runs in "start-dev" mode with its embedded dev storage
+  # (not Postgres-backed) - a deliberate scope boundary, same category as
+  # Milestone 22's in-memory saga state: the point of this milestone is
+  # proving OIDC/JWT validation and scope-based authorization actually work,
+  # not building Keycloak HA. Realm/client/user provisioning is scripted
+  # (scripts/keycloak-configure-realm.sh) against the admin REST API, so a
+  # restart's fresh dev storage is reproducible from a clean command, not a
+  # manual setup step.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    restart: unless-stopped
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?KEYCLOAK_ADMIN_PASSWORD is required}
+      KC_HTTP_ENABLED: "true"
+      # Fixed rather than left to reflect the connecting client's Host
+      # header: K3s pods reach this service as "keycloak" (the Service
+      # name), while host-run scripts must use the k3s-bridge fixed IP
+      # directly (the published host port doesn't actually bind - see
+      # scripts/keycloak-configure-realm.sh). Without a fixed hostname,
+      # tokens obtained through each path would carry a different "iss"
+      # claim and fail Orders.Api's issuer validation depending on which
+      # address was used to request them.
+      KC_HOSTNAME: keycloak
+      KC_HOSTNAME_STRICT: "false"
+      KC_HEALTH_ENABLED: "true"
+    command: ["start-dev"]
+    ports:
+      - "${LAB_BIND_ADDRESS:-127.0.0.1}:${KEYCLOAK_PORT:-18081}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '\"status\": \"UP\"' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    networks:
+      backend:
+      k3s-bridge:
+        ipv4_address: 172.30.0.17
+    mem_limit: 768m
+    cpus: 1.0
+    stop_grace_period: 10s
+
   debezium:
     image: debezium/connect:2.7.3.Final
     restart: unless-stopped

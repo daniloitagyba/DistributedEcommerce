@@ -16,6 +16,9 @@ declare -A instances=()
 declare -a order_ids=()
 last_correlation_id=""
 
+access_token=$("$script_directory/keycloak-get-token.sh")
+auth_header="Authorization: Bearer $access_token"
+
 worker_logs() {
   if [[ "$worker_runtime" == "kubernetes" ]]; then
     kubectl logs --namespace "$kubernetes_namespace" deployment/orders-worker --since=5m
@@ -34,6 +37,7 @@ for index in $(seq 1 6); do
     --output "$body_file" \
     --request POST \
     --header 'Content-Type: application/json' \
+    --header "$auth_header" \
     --header "X-Correlation-ID: $correlation_id" \
     --data "{\"customerId\":\"smoke-customer-$index\",\"amount\":$index.50,\"currency\":\"brl\"}" \
     "$orders_url/orders"
@@ -58,7 +62,7 @@ if (( ${#instances[@]} < expected_api_instances )); then
 fi
 
 for order_id in "${order_ids[@]}"; do
-  curl --fail --silent --show-error "$orders_url/orders/$order_id" >/dev/null
+  curl --fail --silent --show-error --header "$auth_header" "$orders_url/orders/$order_id" >/dev/null
 done
 
 worker_logged=false

@@ -35,6 +35,9 @@ run_id=$(date -u +%Y%m%dT%H%M%SZ)
 test_directory="$results_root/$run_id-chaos-$target-$scenario"
 mkdir -p "$test_directory"
 
+access_token=$("$script_directory/keycloak-get-token.sh")
+auth_header="Authorization: Bearer $access_token"
+
 endpointslice_name="${target}-compose"
 backup_file="$test_directory/endpointslice-backup.json"
 kubectl get endpointslice "$endpointslice_name" --namespace "$namespace" --output json >"$backup_file"
@@ -157,6 +160,7 @@ else
     status=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 5 \
       --request POST "http://$service_ip/orders" \
       --header 'Content-Type: application/json' \
+      --header "$auth_header" \
       --header "X-Correlation-ID: chaos-outage-$run_id-$attempt" \
       --data '{"customerId":"chaos-outage-customer","amount":9.99,"currency":"BRL"}' || echo "000")
     ended_ms=$(date +%s%3N)

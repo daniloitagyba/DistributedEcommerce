@@ -6,10 +6,22 @@ import { Counter, Rate, Trend } from 'k6/metrics';
 const profileName = __ENV.PROFILE || 'smoke';
 const baseUrl = (__ENV.BASE_URL || '').replace(/\/$/, '');
 const runId = __ENV.RUN_ID || `${Date.now()}`;
+const accessToken = __ENV.ACCESS_TOKEN || '';
 
 if (!baseUrl) {
   throw new Error('BASE_URL is required.');
 }
+
+if (!accessToken) {
+  throw new Error('ACCESS_TOKEN is required (see scripts/keycloak-get-token.sh).');
+}
+
+// Milestone 26: orders-api now requires a bearer token on every /orders
+// request. One token, fetched once by scripts/k6-run.sh before k6 starts,
+// is reused for the whole run rather than refetched per-VU/per-iteration -
+// the realm's 900s access token lifespan comfortably covers every profile's
+// total duration (soak, the longest, runs 5m20s including graceful stop).
+const authHeaders = { Authorization: `Bearer ${accessToken}` };
 
 const commonThresholds = {
   checks: ['rate>0.99'],
@@ -247,6 +259,7 @@ export function setup() {
       headers: {
         'Content-Type': 'application/json',
         'X-Correlation-ID': `k6-cache-seed-${runId}-${index}`,
+        ...authHeaders,
       },
       timeout: '10s',
     });
@@ -299,6 +312,7 @@ function sagaWorkload() {
     headers: {
       'Content-Type': 'application/json',
       'X-Correlation-ID': `k6-saga-${iterationId}`,
+      ...authHeaders,
     },
     tags: {
       endpoint: 'create-order',
@@ -324,6 +338,7 @@ function sagaWorkload() {
     sleep(SAGA_POLL_DELAY_SECONDS);
 
     const getResponse = http.get(`${baseUrl}/orders/${orderId}`, {
+      headers: authHeaders,
       tags: {
         endpoint: 'get-order',
         name: 'GET /orders/:id',
@@ -360,6 +375,7 @@ function overloadWorkload() {
     headers: {
       'Content-Type': 'application/json',
       'X-Correlation-ID': `k6-overload-${iterationId}`,
+      ...authHeaders,
     },
     tags: {
       endpoint: 'create-order',
@@ -397,6 +413,7 @@ function cacheWorkload(data) {
 
   const orderId = orderIds[Math.floor(Math.random() * orderIds.length)];
   const response = http.get(`${baseUrl}/orders/${orderId}`, {
+    headers: authHeaders,
     tags: {
       endpoint: 'get-order-cached',
       name: 'GET /orders/:id (cached)',
@@ -426,6 +443,7 @@ function ordersWorkload() {
     headers: {
       'Content-Type': 'application/json',
       'X-Correlation-ID': correlationId,
+      ...authHeaders,
     },
     tags: {
       endpoint: 'create-order',
@@ -463,6 +481,7 @@ function ordersWorkload() {
   instanceRequests.add(1, { instance_id: instanceId });
 
   const getResponse = http.get(`${baseUrl}/orders/${orderId}`, {
+    headers: authHeaders,
     tags: {
       endpoint: 'get-order',
       name: 'GET /orders/:id',

@@ -1,6 +1,9 @@
 using BuildingBlocks;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
+using Orders.Api.Authorization;
 using Orders.Api.Endpoints;
 using Orders.Api.Middleware;
 using Orders.Api.RateLimiting;
@@ -35,6 +38,27 @@ var connectionString = builder.Configuration.GetConnectionString("Orders")
 builder.Services.AddOrdersApplication();
 builder.Services.AddOrdersInfrastructure(builder.Configuration, connectionString, instanceId);
 builder.Services.AddOrdersRateLimiting(builder.Configuration);
+
+// Milestone 26: bearer tokens are validated against Keycloak's own JWKS,
+// fetched from its OIDC discovery document at startup and refreshed
+// automatically - no shared secret or key material lives in this service's
+// own configuration. "orders-api" is a hardcoded-audience protocol mapper
+// on the Keycloak client (see scripts/keycloak-configure-realm.sh), not the
+// client_credentials grant's default "account" audience, so a token minted
+// for some other Keycloak client in this realm is rejected on audience
+// alone, not just on missing roles.
+var authority = builder.Configuration["Authentication:Authority"]
+    ?? throw new InvalidOperationException("Authentication:Authority is required.");
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.Authority = authority;
+        options.Audience = "orders-api";
+        options.RequireHttpsMetadata = false;
+    });
+builder.Services.AddAuthorizationBuilder()
+    .AddPolicy(OrdersAuthorizationPolicies.Read, policy => policy.RequireRole("orders:read", "orders:write"))
+    .AddPolicy(OrdersAuthorizationPolicies.Write, policy => policy.RequireRole("orders:write"));
 builder.Services.AddHealthChecks()
     .AddCheck<PostgresHealthCheck>("postgres", tags: ["ready"])
     .AddCheck<KafkaHealthCheck>("kafka", tags: ["ready"])
@@ -52,6 +76,8 @@ if (args.Contains("--migrate", StringComparer.Ordinal))
 
 app.UseExceptionHandler();
 app.UseRateLimiter();
+app.UseAuthentication();
+app.UseAuthorization();
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.Use(async (context, next) =>
 {

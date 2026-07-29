@@ -1,3 +1,4 @@
+using Orders.Api.Authorization;
 using Orders.Api.Contracts;
 using Orders.Api.RateLimiting;
 using Orders.Application.UseCases.ListOrderSummaries;
@@ -15,7 +16,8 @@ public static class OrderSummaryEndpoints
     {
         endpoints.MapGet("/orders/summary", ListAsync)
             .WithTags("Orders")
-            .RequireRateLimiting(RateLimitingExtensions.OrdersPolicy);
+            .RequireRateLimiting(RateLimitingExtensions.OrdersPolicy)
+            .RequireAuthorization(OrdersAuthorizationPolicies.Read);
 
         return endpoints;
     }

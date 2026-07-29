@@ -1,0 +1,44 @@
+# Milestone 26: narrows orders-api's mesh-visible inbound traffic (port
+# 8080) to only requests authenticated as the orders-worker workload
+# identity - Linkerd's own AuthorizationPolicy layer, independent of and
+# complementary to the OIDC/JWT authorization Orders.Api itself now
+# enforces. Linkerd's defaultInboundPolicy is "all-unauthenticated"
+# cluster-wide (Milestone 24); this is the first workload-specific
+# narrowing of that default. Applied imperatively - cluster infrastructure,
+# same category as the Linkerd install itself and the Kyverno policies in
+# this same directory, not an Argo CD-managed application manifest.
+apiVersion: policy.linkerd.io/v1beta3
+kind: Server
+metadata:
+  name: orders-api-http
+  namespace: orders-lab
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: orders-api
+  port: http
+  proxyProtocol: HTTP/1
+---
+apiVersion: policy.linkerd.io/v1alpha1
+kind: MeshTLSAuthentication
+metadata:
+  name: orders-worker-identity
+  namespace: orders-lab
+spec:
+  identities:
+    - "orders-worker.orders-lab.serviceaccount.identity.linkerd.cluster.local"
+---
+apiVersion: policy.linkerd.io/v1alpha1
+kind: AuthorizationPolicy
+metadata:
+  name: orders-api-allow-orders-worker
+  namespace: orders-lab
+spec:
+  targetRef:
+    group: policy.linkerd.io
+    kind: Server
+    name: orders-api-http
+  requiredAuthenticationRefs:
+    - group: policy.linkerd.io
+      kind: MeshTLSAuthentication
+      name: orders-worker-identity

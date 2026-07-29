@@ -25,6 +25,15 @@ spec:
       annotations:
         linkerd.io/inject: enabled
     spec:
+      # Milestone 26: a dedicated ServiceAccount, not the namespace default
+      # every other pod still uses - Linkerd's mTLS identity is derived from
+      # the pod's ServiceAccount, so sharing "default" across every workload
+      # (the case until this milestone) makes per-service AuthorizationPolicy
+      # meaningless: every pod would present the same identity. This is what
+      # lets kubernetes/cluster-policies/orders-api-authz.yaml distinguish
+      # "a request that's actually orders-worker" from "a request that's
+      # some other meshed pod."
+      serviceAccountName: orders-worker
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30
       securityContext:

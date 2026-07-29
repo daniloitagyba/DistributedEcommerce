@@ -22,7 +22,7 @@ public sealed class OrderSagaOrchestrator(
     IOptions<SagaOrchestrationOptions> options,
     IProducer<string, string> producer,
     ISchemaRegistryClient schemaRegistryClient,
-    SagaOrchestrationTracker tracker,
+    SagaOrchestrationStore store,
     ILogger<OrderSagaOrchestrator> logger) : BackgroundService
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
@@ -92,7 +92,7 @@ public sealed class OrderSagaOrchestrator(
         }
 
         var requestedAt = DateTimeOffset.UtcNow;
-        tracker.TrackRequested(orderCreated.OrderId, orderCreated.CorrelationId, requestedAt);
+        await store.TrackRequestedAsync(orderCreated.OrderId, orderCreated.CorrelationId, requestedAt, cancellationToken);
 
         var request = new PaymentDecisionRequested(
             orderCreated.OrderId,

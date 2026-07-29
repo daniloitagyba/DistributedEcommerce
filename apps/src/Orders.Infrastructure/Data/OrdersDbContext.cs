@@ -16,6 +16,8 @@ public sealed class OrdersDbContext(DbContextOptions<OrdersDbContext> options) :
 
     public DbSet<OrderEvent> OrderEvents => Set<OrderEvent>();
 
+    public DbSet<SagaOrchestrationState> SagaOrchestrationStates => Set<SagaOrchestrationState>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ConfigureOrder(modelBuilder);
@@ -23,6 +25,7 @@ public sealed class OrdersDbContext(DbContextOptions<OrdersDbContext> options) :
         ConfigureInbox(modelBuilder);
         ConfigureOrderSummary(modelBuilder);
         ConfigureOrderEvent(modelBuilder);
+        ConfigureSagaOrchestrationState(modelBuilder);
     }
 
     private static void ConfigureOrder(ModelBuilder modelBuilder)
@@ -120,6 +123,19 @@ public sealed class OrdersDbContext(DbContextOptions<OrdersDbContext> options) :
         orderEvent.Property(item => item.OccurredAt).HasColumnName("occurred_at").IsRequired();
         orderEvent.HasIndex(item => new { item.OrderId, item.Id })
             .HasDatabaseName("ix_order_events_order_id");
+    }
+
+    private static void ConfigureSagaOrchestrationState(ModelBuilder modelBuilder)
+    {
+        var saga = modelBuilder.Entity<SagaOrchestrationState>();
+
+        saga.ToTable("saga_orchestration_states");
+        saga.HasKey(item => item.OrderId);
+        saga.Property(item => item.OrderId).HasColumnName("order_id").ValueGeneratedNever();
+        saga.Property(item => item.CorrelationId).HasColumnName("correlation_id").HasMaxLength(128).IsRequired();
+        saga.Property(item => item.RequestedAt).HasColumnName("requested_at").IsRequired();
+        saga.HasIndex(item => item.RequestedAt)
+            .HasDatabaseName("ix_saga_orchestration_states_requested_at");
     }
 }
 

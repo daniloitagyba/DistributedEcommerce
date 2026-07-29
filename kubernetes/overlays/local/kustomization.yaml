@@ -7,9 +7,9 @@ resources:
   - connectivity-job.yaml
 images:
   - name: local-distributed-lab/orders-api
-    newTag: milestone-35-feature-flags
+    newTag: milestone-36-leader-election
   - name: local-distributed-lab/orders-worker
-    newTag: milestone-34-profiling-fix
+    newTag: milestone-36-leader-election
   - name: local-distributed-lab/payments-service
     newTag: milestone-34-profiling-fix
 patches:

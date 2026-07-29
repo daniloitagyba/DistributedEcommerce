@@ -1,0 +1,31 @@
+# Milestone 36: scoped RBAC for LeaderElectionService - the orders-worker
+# ServiceAccount can do exactly one thing against the API server: read,
+# create, and update Lease objects in this namespace. It still cannot read
+# Pods, Secrets, ConfigMaps, or anything else, despite now having its
+# ServiceAccount token mounted (kubernetes/base/orders-worker.yaml flipped
+# automountServiceAccountToken from false to true for this milestone).
+# Applied imperatively - cluster infrastructure, same category as the
+# Kyverno/Linkerd policies already in this directory.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: orders-worker-leader-election
+  namespace: orders-lab
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: orders-worker-leader-election
+  namespace: orders-lab
+subjects:
+  - kind: ServiceAccount
+    name: orders-worker
+    namespace: orders-lab
+roleRef:
+  kind: Role
+  name: orders-worker-leader-election
+  apiGroup: rbac.authorization.k8s.io

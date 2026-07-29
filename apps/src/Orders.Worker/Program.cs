@@ -62,6 +62,12 @@ builder.Services.AddOptions<OrderEventStoreOptions>()
     .Validate(options => !string.IsNullOrWhiteSpace(options.PaymentResultTopic), "Payment result topic is required.")
     .Validate(options => !string.IsNullOrWhiteSpace(options.ConsumerGroup), "Kafka consumer group is required.")
     .ValidateOnStart();
+builder.Services.AddOptions<LeaderElectionOptions>()
+    .Bind(builder.Configuration.GetSection(LeaderElectionOptions.SectionName))
+    .Validate(options => !string.IsNullOrWhiteSpace(options.Namespace), "Leader election namespace is required.")
+    .Validate(options => !string.IsNullOrWhiteSpace(options.LeaseName), "Leader election lease name is required.")
+    .Validate(options => options.LeaseDurationSeconds > options.RenewDeadlineSeconds, "Lease duration must exceed the renew deadline.")
+    .ValidateOnStart();
 
 var connectionString = builder.Configuration.GetConnectionString("Orders")
     ?? throw new InvalidOperationException("Connection string 'Orders' is required.");
@@ -105,9 +111,12 @@ builder.Services.AddHostedService<OrderCreatedConsumer>();
 builder.Services.AddHostedService<PaymentResultConsumer>();
 builder.Services.AddHostedService<OrderProjectionConsumer>();
 
-builder.Services.AddSingleton<SagaOrchestrationTracker>();
+builder.Services.AddSingleton<SagaOrchestrationStore>();
 builder.Services.AddHostedService<OrderSagaOrchestrator>();
 builder.Services.AddHostedService<OrderSagaReplyConsumer>();
+
+builder.Services.AddSingleton<LeaderElectionService>();
+builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<LeaderElectionService>());
 builder.Services.AddHostedService<SagaTimeoutSweeper>();
 
 builder.Services.AddSingleton<OrderEventStoreAppender>();

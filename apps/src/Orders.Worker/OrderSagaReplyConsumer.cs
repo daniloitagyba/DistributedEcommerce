@@ -7,7 +7,7 @@ namespace Orders.Worker;
 
 public sealed class OrderSagaReplyConsumer(
     IOptions<SagaOrchestrationOptions> options,
-    SagaOrchestrationTracker tracker,
+    SagaOrchestrationStore store,
     ILogger<OrderSagaReplyConsumer> logger) : BackgroundService
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
@@ -46,7 +46,7 @@ public sealed class OrderSagaReplyConsumer(
                     continue;
                 }
 
-                HandleReply(consumeResult.Message.Value);
+                await HandleReplyAsync(consumeResult.Message.Value, stoppingToken);
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -59,7 +59,7 @@ public sealed class OrderSagaReplyConsumer(
         }
     }
 
-    private void HandleReply(string payload)
+    private async Task HandleReplyAsync(string payload, CancellationToken cancellationToken)
     {
         PaymentDecisionReplied reply;
         try
@@ -73,7 +73,8 @@ public sealed class OrderSagaReplyConsumer(
             return;
         }
 
-        if (!tracker.TryCompleteReplied(reply.OrderId, out var saga))
+        var saga = await store.TryCompleteRepliedAsync(reply.OrderId, cancellationToken);
+        if (saga is null)
         {
             SagaOrchestratorLog.UnknownReply(logger, reply.OrderId);
             return;

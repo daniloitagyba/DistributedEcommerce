@@ -463,6 +463,20 @@ services:
     cpus: 0.50
     stop_grace_period: 20s
 
+  pyroscope:
+    image: grafana/pyroscope:1.15.0
+    restart: unless-stopped
+    command: ["server"]
+    volumes:
+      - pyroscope-data:/data/pyroscope
+    networks:
+      backend:
+      k3s-bridge:
+        ipv4_address: 172.30.0.19
+    mem_limit: 256m
+    cpus: 0.50
+    stop_grace_period: 20s
+
   loki-init:
     image: alpine:3.22
     restart: "no"
@@ -634,3 +648,4 @@ volumes:
   alertmanager-data:
   grafana-data:
   minio-data:
+  pyroscope-data:

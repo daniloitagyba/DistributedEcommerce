@@ -85,6 +85,12 @@ spec:
               value: "75"
             - name: RateLimit__ReplenishmentPeriodSeconds
               value: "1"
+            - name: PYROSCOPE_PROFILING_ENABLED
+              value: "1"
+            - name: PYROSCOPE_SERVER_ADDRESS
+              value: http://pyroscope:4040
+            - name: PYROSCOPE_APPLICATION_NAME
+              value: orders-api
             - name: InstanceId
               valueFrom:
                 fieldRef:

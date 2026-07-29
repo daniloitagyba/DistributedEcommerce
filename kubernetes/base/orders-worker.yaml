@@ -84,6 +84,12 @@ spec:
               value: grpc
             - name: OTEL_RESOURCE_ATTRIBUTES
               value: k8s.namespace.name=orders-lab
+            - name: PYROSCOPE_PROFILING_ENABLED
+              value: "1"
+            - name: PYROSCOPE_SERVER_ADDRESS
+              value: http://pyroscope:4040
+            - name: PYROSCOPE_APPLICATION_NAME
+              value: orders-worker
           ports:
             - name: http
               containerPort: 8080

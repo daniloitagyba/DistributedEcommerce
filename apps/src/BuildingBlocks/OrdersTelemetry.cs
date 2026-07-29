@@ -23,6 +23,8 @@ public static class OrdersTelemetry
     private static readonly Counter<long> IdempotentReplayCounter = Meter.CreateCounter<long>("orders.idempotency.replayed");
     private static readonly Counter<long> IdempotencyBypassCounter = Meter.CreateCounter<long>("orders.idempotency.bypassed");
     private static readonly Counter<long> RateLimitedCounter = Meter.CreateCounter<long>("orders.rate_limited");
+    private static readonly Counter<long> DistributedRateLimitedCounter = Meter.CreateCounter<long>("orders.rate_limited.distributed");
+    private static readonly Counter<long> DistributedRateLimitBypassCounter = Meter.CreateCounter<long>("orders.rate_limit.distributed_bypassed");
     private static readonly Counter<long> PaymentDecidedCounter = Meter.CreateCounter<long>("payments.decided");
     private static readonly Histogram<double> ProjectionLagHistogram = Meter.CreateHistogram<double>("orders.projection.lag_ms");
 
@@ -104,6 +106,16 @@ public static class OrdersTelemetry
     public static void RecordRateLimited()
     {
         RateLimitedCounter.Add(1);
+    }
+
+    public static void RecordDistributedRateLimited()
+    {
+        DistributedRateLimitedCounter.Add(1);
+    }
+
+    public static void RecordDistributedRateLimitBypass()
+    {
+        DistributedRateLimitBypassCounter.Add(1);
     }
 
     public static void RecordPaymentDecided(bool approved)

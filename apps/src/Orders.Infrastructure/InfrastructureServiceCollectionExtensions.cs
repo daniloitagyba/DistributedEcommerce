@@ -9,6 +9,7 @@ using Orders.Infrastructure.Caching;
 using Orders.Infrastructure.Data;
 using Orders.Infrastructure.Idempotency;
 using Orders.Infrastructure.Messaging;
+using Orders.Infrastructure.RateLimiting;
 
 namespace Orders.Infrastructure;
 
@@ -33,6 +34,11 @@ public static class InfrastructureServiceCollectionExtensions
             .Validate(options => options.LockTimeoutMilliseconds > 0, "Idempotency lock timeout must be positive.")
             .Validate(options => options.LockRetryAttempts >= 0, "Idempotency lock retry attempts must not be negative.")
             .Validate(options => options.LockRetryDelayMilliseconds > 0, "Idempotency lock retry delay must be positive.")
+            .ValidateOnStart();
+        services.AddOptions<DistributedRateLimitOptions>()
+            .Bind(configuration.GetSection(DistributedRateLimitOptions.SectionName))
+            .Validate(options => options.Limit > 0, "Distributed rate limit must be positive.")
+            .Validate(options => options.WindowSeconds > 0, "Distributed rate limit window must be positive.")
             .ValidateOnStart();
         services.AddOptions<OutboxOptions>()
             .Bind(configuration.GetSection(OutboxOptions.SectionName))
@@ -74,6 +80,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IOrderEventStoreRepository, Persistence.EfOrderEventStoreRepository>();
         services.AddSingleton<IOrderCache, RedisOrderCache>();
         services.AddSingleton<IIdempotencyStore, RedisIdempotencyStore>();
+        services.AddSingleton<RedisSlidingWindowRateLimiter>();
         services.AddSingleton<IOrderEventPublisher, KafkaOrderEventPublisher>();
         services.AddHostedService<OutboxPublisher>();
 

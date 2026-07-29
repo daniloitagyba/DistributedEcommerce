@@ -143,6 +143,7 @@ if (args.Contains("--migrate", StringComparer.Ordinal))
 
 app.UseExceptionHandler();
 app.UseRateLimiter();
+app.UseMiddleware<DistributedRateLimitingMiddleware>();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseMiddleware<CorrelationIdMiddleware>();

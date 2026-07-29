@@ -87,6 +87,10 @@ spec:
               value: "75"
             - name: RateLimit__ReplenishmentPeriodSeconds
               value: "1"
+            - name: DistributedRateLimit__Limit
+              value: "150"
+            - name: DistributedRateLimit__WindowSeconds
+              value: "10"
             - name: PYROSCOPE_PROFILING_ENABLED
               value: "1"
             - name: PYROSCOPE_SERVER_ADDRESS

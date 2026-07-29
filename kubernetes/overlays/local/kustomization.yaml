@@ -7,7 +7,7 @@ resources:
   - connectivity-job.yaml
 images:
   - name: local-distributed-lab/orders-api
-    newTag: milestone-36-leader-election
+    newTag: milestone-38-distributed-rate-limit
   - name: local-distributed-lab/orders-worker
     newTag: milestone-36-leader-election
   - name: local-distributed-lab/payments-service

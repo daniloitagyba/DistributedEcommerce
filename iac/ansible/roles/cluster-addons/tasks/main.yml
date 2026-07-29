@@ -1,0 +1,77 @@
+---
+- name: Add Helm repositories
+  kubernetes.core.helm_repository:
+    name: "{{ item.repo_name }}"
+    repo_url: "{{ item.repo_url }}"
+    force_update: true
+  loop: "{{ helm_releases }}"
+  loop_control:
+    label: "{{ item.repo_name }}"
+
+- name: Install/upgrade Helm-based cluster add-ons
+  kubernetes.core.helm:
+    name: "{{ item.name }}"
+    chart_ref: "{{ item.chart_ref }}"
+    release_namespace: "{{ item.release_namespace }}"
+    create_namespace: true
+    update_repo_cache: true
+  loop: "{{ helm_releases }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+# Linkerd needs its own sequence (CRDs, then control plane, then the CNI
+# plugin - required because orders-lab enforces the "restricted" Pod
+# Security Standard, see docs/gitops/milestone-24-service-mesh.md) rather
+# than a single generic Helm release, so it's handled separately from the
+# loop above instead of forced into a shape that doesn't fit it.
+- name: Check whether the Linkerd control plane is already installed
+  kubernetes.core.k8s_info:
+    kind: Namespace
+    name: linkerd
+  register: linkerd_ns
+
+- name: Install Linkerd (CRDs, control plane, CNI plugin)
+  when: linkerd_ns.resources | length == 0
+  block:
+    - name: Install Linkerd CRDs
+      ansible.builtin.shell: |
+        set -o pipefail
+        linkerd install --crds 2>/dev/null | kubectl apply -f -
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Install the Linkerd CNI plugin
+      ansible.builtin.shell: |
+        set -o pipefail
+        linkerd install-cni \
+          --dest-cni-bin-dir=/var/lib/rancher/k3s/data/cni \
+          --dest-cni-net-dir=/var/lib/rancher/k3s/agent/etc/cni/net.d \
+          --set iptablesMode=legacy 2>/dev/null | kubectl apply -f -
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Install the Linkerd control plane in CNI mode
+      ansible.builtin.shell: |
+        set -o pipefail
+        linkerd install --linkerd-cni-enabled 2>/dev/null | kubectl apply -f -
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Install the Linkerd viz extension
+      ansible.builtin.shell: |
+        set -o pipefail
+        linkerd viz install 2>/dev/null | kubectl apply -f -
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+- name: Apply Kyverno and Linkerd cluster policies
+  kubernetes.core.k8s:
+    state: present
+    src: "{{ playbook_dir }}/../../kubernetes/cluster-policies/{{ item }}"
+  loop:
+    - verify-image-signatures.yaml
+    - orders-api-authz.yaml

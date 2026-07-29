@@ -1,0 +1,48 @@
+---
+- name: Check whether K3s is already installed
+  ansible.builtin.command: k3s --version
+  register: k3s_check
+  changed_when: false
+  failed_when: false
+
+# Same root requirement and same "no-op here" note as roles/docker - K3s's
+# install script sets up a systemd service, which this environment's
+# non-sudo user genuinely cannot do. Pinned to the version this cluster
+# actually runs (confirmed via `kubectl version`), not "whatever's latest
+# today" - an unpinned install script is not a reproducible one.
+- name: Install K3s (only if missing)
+  when: k3s_check.rc != 0
+  become: true
+  block:
+    - name: Install K3s via the official install script, pinned to the running version
+      ansible.builtin.shell: |
+        curl -sfL https://get.k3s.io | \
+          INSTALL_K3S_VERSION="{{ k3s_version }}" \
+          INSTALL_K3S_EXEC="server --write-kubeconfig-mode 644" \
+          sh -
+      changed_when: true
+
+- name: Check whether a working kubeconfig already exists
+  ansible.builtin.stat:
+    path: "{{ ansible_env.HOME }}/.kube/config"
+  register: kubeconfig_check
+
+- name: Set up kubectl's default kubeconfig (only if missing)
+  when: not kubeconfig_check.stat.exists
+  block:
+    - name: Ensure the local kubeconfig directory exists
+      ansible.builtin.file:
+        path: "{{ ansible_env.HOME }}/.kube"
+        state: directory
+        mode: "0700"
+
+    # A copy, not a symlink: `--write-kubeconfig-mode 644` (set at install
+    # time above) makes /etc/rancher/k3s/k3s.yaml world-readable, so this
+    # needs no elevated privilege - reading a world-readable file to write
+    # into the invoking user's own home directory.
+    - name: Copy K3s's kubeconfig to kubectl's default lookup path
+      ansible.builtin.copy:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: "{{ ansible_env.HOME }}/.kube/config"
+        mode: "0600"
+        remote_src: true

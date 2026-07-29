@@ -1,0 +1,34 @@
+---
+k3s_version: v1.36.2+k3s1
+
+helm_releases:
+  - name: sealed-secrets
+    chart_ref: sealed-secrets/sealed-secrets
+    release_namespace: kube-system
+    repo_name: sealed-secrets
+    repo_url: https://bitnami.github.io/sealed-secrets
+  - name: argo-rollouts
+    chart_ref: argo/argo-rollouts
+    release_namespace: argo-rollouts
+    repo_name: argo
+    repo_url: https://argoproj.github.io/argo-helm
+  - name: argocd
+    chart_ref: argo/argo-cd
+    release_namespace: argocd
+    repo_name: argo
+    repo_url: https://argoproj.github.io/argo-helm
+  - name: keda
+    chart_ref: kedacore/keda
+    release_namespace: keda
+    repo_name: kedacore
+    repo_url: https://kedacore.github.io/charts
+  - name: kyverno
+    chart_ref: kyverno/kyverno
+    release_namespace: kyverno
+    repo_name: kyverno
+    repo_url: https://kyverno.github.io/kyverno/
+  - name: cnpg
+    chart_ref: cnpg/cloudnative-pg
+    release_namespace: cnpg-system
+    repo_name: cnpg
+    repo_url: https://cloudnative-pg.github.io/charts

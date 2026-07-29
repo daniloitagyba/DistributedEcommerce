@@ -1,0 +1,50 @@
+# Template for a point-in-time-recovery drill: restores orders-ha's backups
+# into a brand new Cluster, up to (and excluding) whatever happened at
+# recoveryTarget.targetTime. Copy this, fill in a real targetTime (from
+# `SELECT now();` on the source cluster, taken right before whatever
+# incident you're rehearsing), and `kubectl apply` it - a separate Cluster
+# next to the original, never destructive to it.
+#
+# serverName is required and easy to get wrong: it defaults to this
+# externalClusters entry's own `name` ("orders-ha-backup-source" below), but
+# barman-cloud archived the source cluster's WALs under ITS name ("orders-ha")
+# - without this override, recovery fails with "no target backup found"
+# even though the backups are sitting right there in the bucket.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: orders-ha-restored
+  namespace: postgres-ha
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.4
+  storage:
+    size: 1Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  bootstrap:
+    recovery:
+      source: orders-ha-backup-source
+      recoveryTarget:
+        targetTime: "REPLACE-WITH-A-REAL-TIMESTAMP-e.g.-2026-07-29 02:32:59.89764+00"
+  externalClusters:
+    - name: orders-ha-backup-source
+      barmanObjectStore:
+        destinationPath: s3://postgres-backups/orders-ha
+        endpointURL: http://minio.orders-lab.svc.cluster.local:9000
+        serverName: orders-ha
+        s3Credentials:
+          accessKeyId:
+            name: minio-backup-credentials
+            key: ACCESS_KEY_ID
+          secretAccessKey:
+            name: minio-backup-credentials
+            key: ACCESS_SECRET_KEY
+  postgresql:
+    parameters:
+      max_connections: "50"

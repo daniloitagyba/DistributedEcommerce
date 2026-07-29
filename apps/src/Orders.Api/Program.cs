@@ -1,3 +1,5 @@
+using System.Security.Claims;
+using System.Text.Json;
 using BuildingBlocks;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -55,6 +57,33 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         options.Authority = authority;
         options.Audience = "orders-api";
         options.RequireHttpsMetadata = false;
+        // Keycloak puts realm roles in a nested "realm_access": { "roles": [...] }
+        // claim, not as flat role claims - RequireRole() below checks
+        // ClaimTypes.Role, which nothing populates by default. Without this,
+        // every request authenticates fine but every role-based policy fails
+        // (403, not 401) regardless of the token's actual roles.
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = context =>
+            {
+                var realmAccess = context.Principal?.FindFirst("realm_access")?.Value;
+                if (string.IsNullOrEmpty(realmAccess) || context.Principal?.Identity is not ClaimsIdentity identity)
+                {
+                    return Task.CompletedTask;
+                }
+
+                using var document = JsonDocument.Parse(realmAccess);
+                if (document.RootElement.TryGetProperty("roles", out var roles))
+                {
+                    foreach (var role in roles.EnumerateArray())
+                    {
+                        identity.AddClaim(new Claim(ClaimTypes.Role, role.GetString() ?? string.Empty));
+                    }
+                }
+
+                return Task.CompletedTask;
+            }
+        };
     });
 builder.Services.AddAuthorizationBuilder()
     .AddPolicy(OrdersAuthorizationPolicies.Read, policy => policy.RequireRole("orders:read", "orders:write"))

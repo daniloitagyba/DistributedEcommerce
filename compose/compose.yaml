@@ -241,6 +241,34 @@ services:
     cpus: 1.0
     stop_grace_period: 10s
 
+  # Milestone 27: S3-compatible object storage for CloudNativePG's WAL
+  # archiving and base backups (Barman Cloud) - K3s's default
+  # local-path-provisioner has no CSI snapshot support, so a volume-snapshot
+  # backup approach isn't available on this cluster; an object store is the
+  # practical option for a home-lab single-node setup.
+  minio:
+    image: minio/minio:RELEASE.2025-04-08T15-41-24Z
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: minio-admin
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+    command: ["server", "/data", "--address", ":9000", "--console-address", ":9001"]
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    volumes:
+      - minio-data:/data
+    networks:
+      backend:
+      k3s-bridge:
+        ipv4_address: 172.30.0.18
+    mem_limit: 512m
+    cpus: 0.50
+    stop_grace_period: 10s
+
   debezium:
     image: debezium/connect:2.7.3.Final
     restart: unless-stopped
@@ -605,3 +633,4 @@ volumes:
   prometheus-data:
   alertmanager-data:
   grafana-data:
+  minio-data:

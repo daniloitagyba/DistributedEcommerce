@@ -1,0 +1,55 @@
+# Milestone 27: a new, isolated CloudNativePG-managed Postgres cluster - not
+# a migration of the live orders/payments database, which stays exactly as
+# it was (single Compose instance). This proves the HA/backup/PITR pattern
+# for real, on real infrastructure, without gambling with the data every
+# prior milestone's validation has accumulated.
+#
+# Applied imperatively (kubectl apply), same category as the Linkerd/Kyverno
+# cluster infrastructure in kubernetes/cluster-policies - not an Argo
+# CD-managed application manifest.
+#
+# Prerequisites: `kubectl create namespace postgres-ha`, a
+# minio-backup-credentials Secret (ACCESS_KEY_ID/ACCESS_SECRET_KEY) in that
+# namespace, and a "postgres-backups" bucket in MinIO (see
+# docs/data-platform/milestone-27-postgres-ha.md for the exact commands).
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: orders-ha
+  namespace: postgres-ha
+spec:
+  instances: 3
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.4
+  storage:
+    size: 1Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  bootstrap:
+    initdb:
+      database: orders_ha_demo
+      owner: orders_ha_demo
+  backup:
+    barmanObjectStore:
+      destinationPath: s3://postgres-backups/orders-ha
+      # MinIO's Service lives in the orders-lab namespace (Milestone 19's
+      # infrastructure-services.yaml pattern); this Cluster's pods live in
+      # postgres-ha, so the short DNS name "minio" doesn't resolve across
+      # namespaces - needs the fully-qualified form.
+      endpointURL: http://minio.orders-lab.svc.cluster.local:9000
+      s3Credentials:
+        accessKeyId:
+          name: minio-backup-credentials
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: minio-backup-credentials
+          key: ACCESS_SECRET_KEY
+      wal:
+        compression: gzip
+  postgresql:
+    parameters:
+      max_connections: "50"

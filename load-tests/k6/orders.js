@@ -2,13 +2,21 @@ import http from 'k6/http';
 import exec from 'k6/execution';
 import { check, sleep } from 'k6';
 import { Counter, Rate, Trend } from 'k6/metrics';
+import { setTimeout } from 'k6/timers';
 
 const profileName = __ENV.PROFILE || 'smoke';
 const baseUrl = (__ENV.BASE_URL || '').replace(/\/$/, '');
 const runId = __ENV.RUN_ID || `${Date.now()}`;
 const accessToken = __ENV.ACCESS_TOKEN || '';
+// Milestone 39: direct pod IPs, not the Service ClusterIP - hedging needs to
+// race two DIFFERENT backend replicas, and a single client connection to a
+// K8s Service VIP is load-balanced by kube-proxy at the TCP-connection
+// level, not per-request, so requests through it can't be steered to a
+// specific replica.
+const podIps = (__ENV.ORDERS_API_POD_IPS || '').split(',').map((ip) => ip.trim()).filter(Boolean);
+const hedgeDelayMs = Number(__ENV.HEDGE_DELAY_MS || '20');
 
-if (!baseUrl) {
+if (!baseUrl && profileName !== 'hedged') {
   throw new Error('BASE_URL is required.');
 }
 
@@ -208,12 +216,35 @@ const profiles = {
       saga_correct_outcome_rate: ['rate==1'],
     },
   },
+  hedged: {
+    scenarios: {
+      orders: {
+        // Milestone 38's cluster-wide distributed rate limiter (150 req/10s
+        // on /orders) is a real, separate protective layer this profile has
+        // to respect, not bypass - low VU count keeps total request volume
+        // (4 HTTP calls per iteration: 2 creates + 2 reads) comfortably
+        // under that limit rather than measuring 429s instead of hedging.
+        executor: 'constant-vus',
+        vus: 2,
+        duration: '45s',
+        gracefulStop: '10s',
+      },
+    },
+    thresholds: {
+      checks: ['rate>0.99'],
+      http_req_failed: ['rate<0.01'],
+    },
+  },
 };
 
 if (!profiles[profileName]) {
   throw new Error(
-    `Unsupported PROFILE "${profileName}". Use smoke, baseline, autoscale, resilience, stress, soak, cache, chaos, overload, or saga.`,
+    `Unsupported PROFILE "${profileName}". Use smoke, baseline, autoscale, resilience, stress, soak, cache, chaos, overload, saga, or hedged.`,
   );
+}
+
+if (profileName === 'hedged' && podIps.length < 2) {
+  throw new Error('PROFILE=hedged requires ORDERS_API_POD_IPS with at least 2 comma-separated pod IPs.');
 }
 
 export const options = {
@@ -236,6 +267,10 @@ const acceptedDuration = new Trend('accepted_duration');
 const sagaConvergedRate = new Rate('saga_converged_rate');
 const sagaCorrectOutcomeRate = new Rate('saga_correct_outcome_rate');
 const sagaConvergenceDuration = new Trend('saga_convergence_duration_ms');
+const unhedgedReadDuration = new Trend('hedged_unhedged_read_duration_ms');
+const hedgedReadDuration = new Trend('hedged_hedged_read_duration_ms');
+const hedgeFiredRate = new Rate('hedged_hedge_fired_rate');
+const hedgeWonRate = new Rate('hedged_hedge_won_rate');
 
 const SAGA_DECLINE_THRESHOLD = 1000;
 const SAGA_POLL_ATTEMPTS = 40;
@@ -277,7 +312,7 @@ export function setup() {
   return { orderIds };
 }
 
-export default function (data) {
+export default async function (data) {
   if (profileName === 'cache') {
     cacheWorkload(data);
     return;
@@ -290,6 +325,11 @@ export default function (data) {
 
   if (profileName === 'saga') {
     sagaWorkload();
+    return;
+  }
+
+  if (profileName === 'hedged') {
+    await hedgedWorkload();
     return;
   }
 
@@ -361,6 +401,114 @@ function sagaWorkload() {
 
   sagaConvergedRate.add(false);
   sagaCorrectOutcomeRate.add(false);
+}
+
+function pickTwoDistinctPods() {
+  const first = podIps[Math.floor(Math.random() * podIps.length)];
+  let second = first;
+  while (second === first && podIps.length > 1) {
+    second = podIps[Math.floor(Math.random() * podIps.length)];
+  }
+  return [first, second];
+}
+
+function createOrderDirect(pod, label, iterationId) {
+  const payload = JSON.stringify({
+    customerId: `hedged-${label}-${iterationId}`,
+    amount: 9.9,
+    currency: 'BRL',
+  });
+  const response = http.post(`http://${pod}:8080/orders`, payload, {
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Correlation-ID': `k6-hedged-${label}-${iterationId}`,
+      ...authHeaders,
+    },
+    tags: { endpoint: 'create-order', name: 'POST /orders' },
+    timeout: '10s',
+  });
+  return response.status === 201 ? response.json('id') : null;
+}
+
+// Milestone 39: real hedging, not "always fire twice" - the second request
+// only goes out if the first hasn't answered within hedgeDelayMs, racing
+// k6/timers' setTimeout against the in-flight primary request's own
+// Promise. Both requests target DIFFERENT replicas (pickTwoDistinctPods),
+// since hedging against the same backend that's already slow wouldn't
+// help - the whole point is routing around one replica having a bad
+// moment while the others are fine.
+async function hedgedGet(orderId, tags) {
+  const [podA, podB] = pickTwoDistinctPods();
+  const primary = http
+    .asyncRequest('GET', `http://${podA}:8080/orders/${orderId}`, null, {
+      headers: authHeaders,
+      tags,
+      timeout: '10s',
+    })
+    .then((response) => ({ response, hedged: false }));
+
+  const hedgeTimeout = new Promise((resolve) => {
+    setTimeout(() => resolve({ timedOut: true }), hedgeDelayMs);
+  });
+
+  const firstResult = await Promise.race([primary, hedgeTimeout]);
+  if (!firstResult.timedOut) {
+    return { winner: firstResult, hedgeFired: false };
+  }
+
+  const hedge = http
+    .asyncRequest('GET', `http://${podB}:8080/orders/${orderId}`, null, {
+      headers: authHeaders,
+      tags,
+      timeout: '10s',
+    })
+    .then((response) => ({ response, hedged: true }));
+
+  const winner = await Promise.race([primary, hedge]);
+  return { winner, hedgeFired: true };
+}
+
+async function hedgedWorkload() {
+  const iterationId = `${runId}-${exec.vu.idInTest}-${exec.scenario.iterationInTest}`;
+  const anyPod = podIps[Math.floor(Math.random() * podIps.length)];
+
+  // Two freshly-created orders, one per strategy - a brand new order's
+  // first read is a cache miss (Milestone 9's cache-aside is never
+  // populated by the create path itself), giving both strategies a real
+  // Postgres-backed read to work with instead of a sub-millisecond Redis
+  // hit that leaves no tail latency to hedge against.
+  const unhedgedOrderId = createOrderDirect(anyPod, 'unhedged', iterationId);
+  const hedgedOrderId = createOrderDirect(anyPod, 'hedged', iterationId);
+
+  if (!unhedgedOrderId || !hedgedOrderId) {
+    successfulFlows.add(false);
+    sleep(1);
+    return;
+  }
+
+  const unhedgedPod = podIps[Math.floor(Math.random() * podIps.length)];
+  const unhedgedTags = { endpoint: 'get-order-unhedged', name: 'GET /orders/:id (unhedged)' };
+  const unhedgedStart = Date.now();
+  const unhedgedResponse = http.get(`http://${unhedgedPod}:8080/orders/${unhedgedOrderId}`, {
+    headers: authHeaders,
+    tags: unhedgedTags,
+    timeout: '10s',
+  });
+  unhedgedReadDuration.add(Date.now() - unhedgedStart);
+  const unhedgedOk = check(unhedgedResponse, { 'unhedged read returns 200': (res) => res.status === 200 });
+
+  const hedgedTags = { endpoint: 'get-order-hedged', name: 'GET /orders/:id (hedged)' };
+  const hedgedStart = Date.now();
+  const { winner, hedgeFired } = await hedgedGet(hedgedOrderId, hedgedTags);
+  hedgedReadDuration.add(Date.now() - hedgedStart);
+  hedgeFiredRate.add(hedgeFired);
+  if (hedgeFired) {
+    hedgeWonRate.add(winner.hedged);
+  }
+  const hedgedOk = check(winner.response, { 'hedged read returns 200': (res) => res.status === 200 });
+
+  successfulFlows.add(unhedgedOk && hedgedOk);
+  sleep(0.6 + Math.random() * 0.3);
 }
 
 function overloadWorkload() {

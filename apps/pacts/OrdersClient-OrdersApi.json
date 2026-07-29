@@ -1,0 +1,168 @@
+{
+  "consumer": {
+    "name": "OrdersClient"
+  },
+  "interactions": [
+    {
+      "description": "a request for an order that does not exist",
+      "providerStates": [
+        {
+          "name": "no order with this id exists, and the caller has the orders:read role"
+        }
+      ],
+      "request": {
+        "headers": {
+          "Authorization": "Bearer contract-test-token"
+        },
+        "matchingRules": {
+          "header": {
+            "Authorization": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "Bearer .+"
+                }
+              ]
+            }
+          }
+        },
+        "method": "GET",
+        "path": "/orders/22222222-2222-2222-2222-222222222222"
+      },
+      "response": {
+        "status": 404
+      }
+    },
+    {
+      "description": "a request to create an order",
+      "providerStates": [
+        {
+          "name": "the orders API is available and the caller has the orders:write role"
+        }
+      ],
+      "request": {
+        "body": {
+          "amount": 49.9,
+          "currency": "BRL",
+          "customerId": "contract-test-customer"
+        },
+        "headers": {
+          "Authorization": "Bearer contract-test-token",
+          "Content-Type": "application/json"
+        },
+        "matchingRules": {
+          "header": {
+            "Authorization": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "Bearer .+"
+                }
+              ]
+            }
+          }
+        },
+        "method": "POST",
+        "path": "/orders"
+      },
+      "response": {
+        "body": {
+          "amount": 49.9,
+          "correlationId": "11111111111111111111111111111111",
+          "createdAt": "2026-01-01T00:00:00+00:00",
+          "currency": "BRL",
+          "customerId": "contract-test-customer",
+          "id": "11111111-1111-1111-1111-111111111111",
+          "instanceId": "orders-api-000000000-00000",
+          "status": "Created"
+        },
+        "headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        },
+        "matchingRules": {
+          "body": {
+            "$.amount": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "decimal"
+                }
+              ]
+            },
+            "$.correlationId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.createdAt": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.currency": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.customerId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.id": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.instanceId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.status": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            }
+          }
+        },
+        "status": 201
+      }
+    }
+  ],
+  "metadata": {
+    "pactRust": {
+      "ffi": "0.4.27",
+      "models": "1.2.8"
+    },
+    "pactSpecification": {
+      "version": "3.0.0"
+    }
+  },
+  "provider": {
+    "name": "OrdersApi"
+  }
+}

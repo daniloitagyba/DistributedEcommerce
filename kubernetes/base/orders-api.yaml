@@ -159,7 +159,16 @@ spec:
     - name: grpc
       port: 81
       targetPort: grpc
-      appProtocol: grpc
+      # "kubernetes.io/h2c" is the exact string Linkerd's outbound policy
+      # controller recognizes for HTTP/2 cleartext (confirmed directly in
+      # its source, policy-controller/core/src/outbound.rs's AppProtocol
+      # parser) - anything else, including the seemingly-more-correct
+      # "grpc", falls into an Unknown variant. Without the recognized
+      # value, the outbound proxy never sets the ALPN hint that tells the
+      # destination this is HTTP/2, and the receiving Server's
+      # proxyProtocol: gRPC declaration then denies the connection outright
+      # for arriving with no negotiated protocol at all.
+      appProtocol: kubernetes.io/h2c
       protocol: TCP
 ---
 apiVersion: policy/v1

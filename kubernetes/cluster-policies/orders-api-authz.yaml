@@ -42,6 +42,53 @@ spec:
     - group: policy.linkerd.io
       kind: MeshTLSAuthentication
       name: orders-worker-identity
+---
+# Milestone 31: a real regression from this same Server's policy, found
+# while building this milestone's game day script and traced back to
+# Milestone 26. Every load-testing/chaos script that talks to orders-api's
+# ClusterIP directly from the host (k6-run.sh and everything that depends
+# on it - every k6 profile; saga-chaos-test.sh; resilience-chaos.sh's
+# outage-window requests) had been silently getting a real 403 from this
+# exact policy since Milestone 26 - undetected because nothing re-ran a k6
+# profile against the live mesh between Milestones 26 and 31.
+# kubectl port-forward (Milestone 24's usual workaround) isn't a full fix
+# here: it's a single-stream tunnel that can't sustain the throughput
+# k6's higher-volume profiles (autoscale, overload, soak) need, a limit
+# already hit and documented for the Mac-local k6 runner earlier in this
+# lab's history. The real fix: host-originated traffic to a ClusterIP
+# arrives SNATed to the flannel bridge gateway (10.42.0.1 on this node,
+# confirmed directly in Milestone 24's own investigation), and Linkerd
+# supports authorizing by source network as an alternative to identity -
+# the same mechanism linkerd-viz's own "kubelet" NetworkAuthentication
+# (0.0.0.0/0, since kubelet's node IP isn't known in advance) already
+# uses for exactly this kind of node-originated traffic. Scoped to this
+# specific node's actual bridge gateway address rather than reused as
+# permissively - multiple AuthorizationPolicy resources targeting the same
+# Server are OR'd together, so this adds an allowed path without loosening
+# the orders-worker mesh-identity requirement above.
+apiVersion: policy.linkerd.io/v1alpha1
+kind: NetworkAuthentication
+metadata:
+  name: k3s-node-bridge-gateway
+  namespace: orders-lab
+spec:
+  networks:
+    - cidr: 10.42.0.1/32
+---
+apiVersion: policy.linkerd.io/v1alpha1
+kind: AuthorizationPolicy
+metadata:
+  name: orders-api-allow-host-originated-traffic
+  namespace: orders-lab
+spec:
+  targetRef:
+    group: policy.linkerd.io
+    kind: Server
+    name: orders-api-http
+  requiredAuthenticationRefs:
+    - group: policy.linkerd.io
+      kind: NetworkAuthentication
+      name: k3s-node-bridge-gateway
 
 # Milestone 30 deliberately does NOT add an equivalent Server/
 # AuthorizationPolicy pair for orders-api's gRPC port (8081/"grpc").

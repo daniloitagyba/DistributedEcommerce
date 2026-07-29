@@ -79,6 +79,8 @@ spec:
               value: "5"
             - name: Idempotency__LockRetryDelayMilliseconds
               value: "100"
+            - name: FeatureManagement__IdempotencyKey
+              value: "true"
             - name: RateLimit__TokenLimit
               value: "80"
             - name: RateLimit__TokensPerPeriod

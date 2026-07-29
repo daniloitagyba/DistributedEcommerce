@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using BuildingBlocks;
 using Microsoft.Extensions.Logging;
+using Microsoft.FeatureManagement;
 using Orders.Application.Ports;
 using Orders.Domain;
 
@@ -10,6 +11,7 @@ namespace Orders.Application.UseCases.CreateOrder;
 public sealed class CreateOrderHandler(
     IOrderRepository repository,
     IIdempotencyStore idempotencyStore,
+    IFeatureManager featureManager,
     ILogger<CreateOrderHandler> logger)
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
@@ -22,7 +24,8 @@ public sealed class CreateOrderHandler(
             return new CreateOrderResult(null, Guid.Empty, errors);
         }
 
-        if (string.IsNullOrWhiteSpace(command.IdempotencyKey))
+        var idempotencyEnabled = await featureManager.IsEnabledAsync(FeatureFlags.IdempotencyKey);
+        if (!idempotencyEnabled || string.IsNullOrWhiteSpace(command.IdempotencyKey))
         {
             var (order, eventId) = await CreateAndPersistAsync(command, cancellationToken);
             return new CreateOrderResult(order, eventId, errors);

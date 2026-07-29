@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.FeatureManagement;
 using Orders.Application.Ports;
 using Orders.Application.UseCases.CreateOrder;
 using Orders.Domain;
@@ -11,7 +12,7 @@ public sealed class CreateOrderHandlerTests
     public async Task HandleAsyncWithoutIdempotencyKeyCreatesANewOrderOnEveryCall()
     {
         var repository = new FakeOrderRepository();
-        var handler = new CreateOrderHandler(repository, new FakeIdempotencyStore(), NullLogger<CreateOrderHandler>.Instance);
+        var handler = new CreateOrderHandler(repository, new FakeIdempotencyStore(), new FakeFeatureManager(enabled: true), NullLogger<CreateOrderHandler>.Instance);
         var command = new CreateOrderCommand("customer-1", 10m, "BRL", "correlation-1", "instance-1");
 
         var first = await handler.HandleAsync(command, CancellationToken.None);
@@ -27,7 +28,7 @@ public sealed class CreateOrderHandlerTests
     public async Task HandleAsyncWithSameIdempotencyKeyReplaysTheFirstResultInsteadOfCreatingAgain()
     {
         var repository = new FakeOrderRepository();
-        var handler = new CreateOrderHandler(repository, new FakeIdempotencyStore(), NullLogger<CreateOrderHandler>.Instance);
+        var handler = new CreateOrderHandler(repository, new FakeIdempotencyStore(), new FakeFeatureManager(enabled: true), NullLogger<CreateOrderHandler>.Instance);
         var command = new CreateOrderCommand("customer-1", 10m, "BRL", "correlation-1", "instance-1", "retry-key-1");
 
         var first = await handler.HandleAsync(command, CancellationToken.None);
@@ -43,7 +44,7 @@ public sealed class CreateOrderHandlerTests
     public async Task HandleAsyncWithDifferentIdempotencyKeysCreatesIndependentOrders()
     {
         var repository = new FakeOrderRepository();
-        var handler = new CreateOrderHandler(repository, new FakeIdempotencyStore(), NullLogger<CreateOrderHandler>.Instance);
+        var handler = new CreateOrderHandler(repository, new FakeIdempotencyStore(), new FakeFeatureManager(enabled: true), NullLogger<CreateOrderHandler>.Instance);
 
         var first = await handler.HandleAsync(
             new CreateOrderCommand("customer-1", 10m, "BRL", "correlation-1", "instance-1", "key-a"),
@@ -52,6 +53,22 @@ public sealed class CreateOrderHandlerTests
             new CreateOrderCommand("customer-1", 10m, "BRL", "correlation-2", "instance-1", "key-b"),
             CancellationToken.None);
 
+        Assert.NotEqual(first.Order!.Id, second.Order!.Id);
+        Assert.Equal(2, repository.AddCallCount);
+    }
+
+    [Fact]
+    public async Task HandleAsyncIgnoresTheIdempotencyKeyWhenTheFeatureFlagIsDisabled()
+    {
+        var repository = new FakeOrderRepository();
+        var handler = new CreateOrderHandler(repository, new FakeIdempotencyStore(), new FakeFeatureManager(enabled: false), NullLogger<CreateOrderHandler>.Instance);
+        var command = new CreateOrderCommand("customer-1", 10m, "BRL", "correlation-1", "instance-1", "retry-key-1");
+
+        var first = await handler.HandleAsync(command, CancellationToken.None);
+        var second = await handler.HandleAsync(command, CancellationToken.None);
+
+        Assert.False(first.WasReplayed);
+        Assert.False(second.WasReplayed);
         Assert.NotEqual(first.Order!.Id, second.Order!.Id);
         Assert.Equal(2, repository.AddCallCount);
     }
@@ -94,5 +111,14 @@ public sealed class CreateOrderHandlerTests
             _entries[idempotencyKey] = created;
             return new IdempotencyLookup(created, WasReplayed: false);
         }
+    }
+
+    private sealed class FakeFeatureManager(bool enabled) : IFeatureManager
+    {
+        public IAsyncEnumerable<string> GetFeatureNamesAsync() => AsyncEnumerable.Empty<string>();
+
+        public Task<bool> IsEnabledAsync(string feature) => Task.FromResult(enabled);
+
+        public Task<bool> IsEnabledAsync<TContext>(string feature, TContext context) => Task.FromResult(enabled);
     }
 }

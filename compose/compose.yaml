@@ -438,7 +438,7 @@ services:
 
   catalog-service:
     profiles: ["compose-apps"]
-    image: local-distributed-lab/catalog-service:milestone-40-catalog-dupsku-fix
+    image: local-distributed-lab/catalog-service:milestone-42-by-sku
     build:
       context: ..
       dockerfile: apps/src/Catalog.Service/Dockerfile
@@ -477,6 +477,27 @@ services:
     depends_on:
       kafka-init:
         condition: service_completed_successfully
+    networks:
+      - backend
+    mem_limit: 256m
+    cpus: 0.50
+    stop_grace_period: 20s
+
+  cart-service:
+    profiles: ["compose-apps"]
+    image: local-distributed-lab/cart-service:milestone-42-cart
+    build:
+      context: ..
+      dockerfile: apps/src/Cart.Service/Dockerfile
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Redis__ConnectionString: redis:6379
+      Catalog__BaseUrl: http://catalog-service:8080
+      InstanceId: cart-service-1
+    depends_on:
+      catalog-service:
+        condition: service_started
     networks:
       - backend
     mem_limit: 256m

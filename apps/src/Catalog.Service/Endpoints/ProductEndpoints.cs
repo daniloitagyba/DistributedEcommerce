@@ -22,6 +22,7 @@ public static class ProductEndpoints
 
         group.MapGet("", ListAsync);
         group.MapGet("/by-ids", ListByIdsAsync);
+        group.MapGet("/by-sku/{sku}", GetBySkuAsync);
         group.MapGet("/{id}", GetByIdAsync);
         group.MapPost("", CreateAsync);
 
@@ -58,6 +59,15 @@ public static class ProductEndpoints
         var idList = ids.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var products = await repository.FindByIdsAsync(idList, cancellationToken);
         return Results.Ok(products);
+    }
+
+    private static async Task<IResult> GetBySkuAsync(
+        string sku,
+        ProductRepository repository,
+        CancellationToken cancellationToken)
+    {
+        var product = await repository.FindBySkuAsync(sku, cancellationToken);
+        return product is null ? Results.NotFound() : Results.Ok(product);
     }
 
     private static async Task<IResult> GetByIdAsync(

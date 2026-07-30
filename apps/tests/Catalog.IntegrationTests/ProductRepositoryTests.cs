@@ -57,6 +57,28 @@ public sealed class ProductRepositoryTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task FindBySkuAsyncFindsTheProductAndReturnsNullForAnUnknownSku()
+    {
+        var sku = $"SKU-BY-SKU-{Guid.NewGuid():N}";
+        var product = new Product
+        {
+            Name = "Findable by SKU",
+            CategorySlug = "electronics",
+            Price = 10m,
+            Sku = sku,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        await _repository.InsertAsync(product, CancellationToken.None);
+
+        var found = await _repository.FindBySkuAsync(sku, CancellationToken.None);
+        var notFound = await _repository.FindBySkuAsync("does-not-exist", CancellationToken.None);
+
+        Assert.NotNull(found);
+        Assert.Equal(product.Id, found!.Id);
+        Assert.Null(notFound);
+    }
+
+    [Fact]
     public async Task FindByIdAsyncReturnsNullForAMalformedId()
     {
         var result = await _repository.FindByIdAsync("not-a-valid-object-id", CancellationToken.None);

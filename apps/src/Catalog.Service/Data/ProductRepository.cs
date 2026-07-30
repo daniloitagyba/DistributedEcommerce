@@ -49,6 +49,11 @@ public sealed class ProductRepository
         return await _products.Find(product => product.Id == id).FirstOrDefaultAsync(cancellationToken);
     }
 
+    public async Task<Product?> FindBySkuAsync(string sku, CancellationToken cancellationToken)
+    {
+        return await _products.Find(product => product.Sku == sku).FirstOrDefaultAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<Product>> FindByIdsAsync(IReadOnlyCollection<string> ids, CancellationToken cancellationToken)
     {
         if (ids.Count == 0)

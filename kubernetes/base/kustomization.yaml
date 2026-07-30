@@ -19,6 +19,7 @@ resources:
   - inventory-service.yaml
   - inventory-migration-job.yaml
   - inventory-seed-job.yaml
+  - cart-service.yaml
   - network-policies.yaml
 labels:
   - pairs:

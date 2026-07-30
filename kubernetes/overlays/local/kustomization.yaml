@@ -13,9 +13,11 @@ images:
   - name: local-distributed-lab/payments-service
     newTag: milestone-34-profiling-fix
   - name: local-distributed-lab/catalog-service
-    newTag: milestone-40-catalog-dupsku-fix
+    newTag: milestone-42-by-sku
   - name: local-distributed-lab/inventory-service
     newTag: milestone-41-inventory
+  - name: local-distributed-lab/cart-service
+    newTag: milestone-42-cart
 patches:
   - target:
       kind: Rollout
@@ -83,6 +85,13 @@ patches:
   - target:
       kind: Job
       name: inventory-seed-m41
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never
+  - target:
+      kind: Deployment
+      name: cart-service
     patch: |-
       - op: replace
         path: /spec/template/spec/containers/0/imagePullPolicy

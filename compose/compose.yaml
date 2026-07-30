@@ -1,4 +1,13 @@
-name: distributed-ecommerce
+# Deliberately NOT renamed to "distributed-ecommerce" along with the rest
+# of the project: this is Docker Compose's project name, used to prefix
+# every container/network/volume that doesn't have an explicit name
+# override - including the Postgres/Kafka/MongoDB data volumes already
+# holding this lab's live data. Changing it would make `docker compose`
+# look for differently-labeled containers and volumes than the ones
+# actually running, stranding the existing data behind old labels rather
+# than migrating it. A real rename of this would need a deliberate
+# stop-and-relabel procedure, not a text substitution.
+name: local-distributed-lab
 
 x-api-common: &api-common
   image: distributed-ecommerce/orders-api:milestone-7
@@ -776,7 +785,9 @@ networks:
   backend:
     internal: true
   k3s-bridge:
-    name: distributed-ecommerce-k3s-bridge
+    # Same reasoning as the top-level project name above: this is the live
+    # network's actual label, not renamed to avoid orphaning it.
+    name: local-distributed-lab-k3s-bridge
     internal: true
     ipam:
       config:

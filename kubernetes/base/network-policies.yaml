@@ -14,7 +14,7 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/part-of: local-distributed-lab
+      app.kubernetes.io/part-of: distributed-ecommerce
   policyTypes:
     - Ingress
   ingress:

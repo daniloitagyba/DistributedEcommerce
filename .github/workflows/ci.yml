@@ -31,13 +31,13 @@ jobs:
           global-json-file: global.json
 
       - name: restore
-        run: dotnet restore apps/LocalDistributedLab.slnx
+        run: dotnet restore apps/DistributedEcommerce.slnx
 
       - name: build
-        run: dotnet build apps/LocalDistributedLab.slnx --no-restore --configuration Release
+        run: dotnet build apps/DistributedEcommerce.slnx --no-restore --configuration Release
 
       - name: test
-        run: dotnet test apps/LocalDistributedLab.slnx --no-build --configuration Release --logger "trx;LogFileName=test-results.trx"
+        run: dotnet test apps/DistributedEcommerce.slnx --no-build --configuration Release --logger "trx;LogFileName=test-results.trx"
 
       - name: publish test results
         if: always()
@@ -60,7 +60,11 @@ jobs:
       matrix:
         service: [orders-api, orders-worker, payments-service]
     env:
-      IMAGE: ghcr.io/${{ github.repository }}/${{ matrix.service }}
+      # Hardcoded lowercase rather than ghcr.io/${{ github.repository }}:
+      # the repo name is mixed-case (DistributedEcommerce) and Docker/OCI
+      # registry paths must be lowercase - github.repository would produce
+      # an invalid tag.
+      IMAGE: ghcr.io/daniloitagyba/distributed-ecommerce/${{ matrix.service }}
     steps:
       - uses: actions/checkout@v4
 

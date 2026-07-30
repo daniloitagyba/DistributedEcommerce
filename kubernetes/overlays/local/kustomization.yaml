@@ -6,19 +6,19 @@ resources:
   - infrastructure-endpoints.yaml
   - connectivity-job.yaml
 images:
-  - name: local-distributed-lab/orders-api
+  - name: distributed-ecommerce/orders-api
     newTag: milestone-43-saga-migration
-  - name: local-distributed-lab/orders-worker
+  - name: distributed-ecommerce/orders-worker
     newTag: milestone-44-bestsellers
-  - name: local-distributed-lab/payments-service
+  - name: distributed-ecommerce/payments-service
     newTag: milestone-34-profiling-fix
-  - name: local-distributed-lab/catalog-service
+  - name: distributed-ecommerce/catalog-service
     newTag: milestone-44-bestsellers
-  - name: local-distributed-lab/inventory-service
+  - name: distributed-ecommerce/inventory-service
     newTag: milestone-43-commit-release
-  - name: local-distributed-lab/cart-service
+  - name: distributed-ecommerce/cart-service
     newTag: milestone-42-cart-redis-timeout-fix
-  - name: local-distributed-lab/storefront-service
+  - name: distributed-ecommerce/storefront-service
     newTag: milestone-45-storefront-token-fix
 patches:
   - target:

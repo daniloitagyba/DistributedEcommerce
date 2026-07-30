@@ -20,7 +20,7 @@ kubectl create secret generic minio-backup-credentials -n postgres-ha \
   --from-literal=ACCESS_SECRET_KEY="$MINIO_ROOT_PASSWORD" \
   --dry-run=client -o yaml | kubectl apply -f -
 
-docker run --rm --network local-distributed-lab_backend --entrypoint /bin/sh minio/mc -c "
+docker run --rm --network distributed-ecommerce_backend --entrypoint /bin/sh minio/mc -c "
   mc alias set localminio http://minio:9000 minio-admin '$MINIO_ROOT_PASSWORD' &&
   mc mb --ignore-existing localminio/postgres-backups
 "

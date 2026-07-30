@@ -21,7 +21,7 @@ spec:
       labels:
         app.kubernetes.io/name: cart-service
         app.kubernetes.io/component: api
-        app.kubernetes.io/part-of: local-distributed-lab
+        app.kubernetes.io/part-of: distributed-ecommerce
       annotations:
         linkerd.io/inject: enabled
     spec:
@@ -33,7 +33,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: cart-service
-          image: local-distributed-lab/cart-service:latest
+          image: distributed-ecommerce/cart-service:latest
           imagePullPolicy: IfNotPresent
           env:
             - name: ASPNETCORE_ENVIRONMENT

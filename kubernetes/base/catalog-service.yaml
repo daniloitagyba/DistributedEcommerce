@@ -21,7 +21,7 @@ spec:
       labels:
         app.kubernetes.io/name: catalog-service
         app.kubernetes.io/component: api
-        app.kubernetes.io/part-of: local-distributed-lab
+        app.kubernetes.io/part-of: distributed-ecommerce
       annotations:
         linkerd.io/inject: enabled
     spec:
@@ -33,7 +33,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: catalog-service
-          image: local-distributed-lab/catalog-service:latest
+          image: distributed-ecommerce/catalog-service:latest
           imagePullPolicy: IfNotPresent
           env:
             - name: ASPNETCORE_ENVIRONMENT

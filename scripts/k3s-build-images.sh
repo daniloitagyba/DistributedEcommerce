@@ -13,15 +13,15 @@ cd "$compose_directory"
 docker compose --profile compose-apps build migrations orders-worker payments-service
 
 docker image inspect \
-  local-distributed-lab/orders-api:milestone-7 \
-  local-distributed-lab/orders-worker:milestone-7 \
-  local-distributed-lab/payments-service:milestone-7 >/dev/null
+  distributed-ecommerce/orders-api:milestone-7 \
+  distributed-ecommerce/orders-worker:milestone-7 \
+  distributed-ecommerce/payments-service:milestone-7 >/dev/null
 
 printf 'Importing milestone 7 images into the K3s containerd image store\n'
 docker save \
-  local-distributed-lab/orders-api:milestone-7 \
-  local-distributed-lab/orders-worker:milestone-7 \
-  local-distributed-lab/payments-service:milestone-7 |
+  distributed-ecommerce/orders-api:milestone-7 \
+  distributed-ecommerce/orders-worker:milestone-7 \
+  distributed-ecommerce/payments-service:milestone-7 |
   docker run --rm --interactive \
     --network none \
     --entrypoint /bin/ctr \
@@ -37,4 +37,4 @@ docker run --rm \
   rancher/k3s:v1.36.2-k3s1 \
   --address /run/k3s/containerd/containerd.sock \
   --namespace k8s.io images list --quiet |
-  grep --extended-regexp 'local-distributed-lab/(orders-(api|worker)|payments-service):milestone-7'
+  grep --extended-regexp 'distributed-ecommerce/(orders-(api|worker)|payments-service):milestone-7'

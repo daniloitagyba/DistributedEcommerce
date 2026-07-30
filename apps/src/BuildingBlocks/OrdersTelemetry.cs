@@ -5,7 +5,7 @@ namespace BuildingBlocks;
 
 public static class OrdersTelemetry
 {
-    public const string SourceName = "LocalDistributedLab.Orders";
+    public const string SourceName = "DistributedEcommerce.Orders";
 
     public static readonly ActivitySource ActivitySource = new(SourceName);
 

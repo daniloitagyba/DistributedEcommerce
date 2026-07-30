@@ -1,10 +1,10 @@
-# Local Distributed Systems Lab
+# DistributedEcommerce
 
-[![ci](https://github.com/daniloitagyba/local-distributed-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/daniloitagyba/local-distributed-lab/actions/workflows/ci.yml)
+[![ci](https://github.com/daniloitagyba/DistributedEcommerce/actions/workflows/ci.yml/badge.svg)](https://github.com/daniloitagyba/DistributedEcommerce/actions/workflows/ci.yml)
 
-A practical distributed-systems lab built incrementally, milestone by milestone, into a multi-service, polyglot-persistence, GitOps-deployed system. Every milestone's report under [`docs/`](docs/) records what actually happened validating it against a live deployment — including what broke — not just the intended design.
+A practical distributed-systems lab, built incrementally milestone by milestone into a multi-service e-commerce system: polyglot persistence, event-driven sagas, and a full GitOps deployment. Every milestone's report under [`docs/`](docs/) records what actually happened validating it against a live deployment — including what broke — not just the intended design.
 
-Six .NET services (`Orders.Api`/`Orders.Worker`, `Payments.Service`, `Catalog.Service`, `Inventory.Service`, `Cart.Service`) coordinate through Kafka and HTTP, backed by PostgreSQL, MongoDB, and Redis, each chosen for what it's actually good at rather than defaulting to one store for everything.
+Seven .NET services (`Orders.Api`/`Orders.Worker`, `Payments.Service`, `Catalog.Service`, `Inventory.Service`, `Cart.Service`, `Storefront.Service`) coordinate through Kafka and HTTP, backed by PostgreSQL, MongoDB, and Redis, each chosen for what it's actually good at rather than defaulting to one store for everything.
 
 ## What it demonstrates
 
@@ -32,7 +32,7 @@ cp .env.example .env
 # edit .env: replace the placeholder passwords with your own random values
 
 docker compose up --detach --wait                          # infrastructure: Postgres, Kafka, Redis, MongoDB, Keycloak, observability stack
-docker compose --profile compose-apps up --detach --wait    # all six application services
+docker compose --profile compose-apps up --detach --wait    # all seven application services
 
 ../scripts/keycloak-configure-realm.sh                      # one-time: creates the auth realm/client the API expects
 ```
@@ -58,16 +58,16 @@ Bring everything down with `docker compose --profile compose-apps down`.
 
 ```bash
 cd apps
-dotnet restore LocalDistributedLab.slnx
-dotnet build LocalDistributedLab.slnx --no-restore
-dotnet test LocalDistributedLab.slnx --no-build
+dotnet restore DistributedEcommerce.slnx
+dotnet build DistributedEcommerce.slnx --no-restore
+dotnet test DistributedEcommerce.slnx --no-build
 ```
 
 Integration tests spin up real, disposable Postgres/MongoDB/Redis/Kafka containers via Testcontainers — no shared state, no manual setup.
 
 ## Repository layout
 
-- `apps/src` — the six services and `BuildingBlocks` (shared contracts, OpenTelemetry wiring, resilience pipelines).
+- `apps/src` — the seven services and `BuildingBlocks` (shared contracts, OpenTelemetry wiring, resilience pipelines).
 - `apps/tests` — unit tests and Testcontainers-backed integration tests.
 - `compose/` — the full local infrastructure and application stack.
 - `kubernetes/` — production-style manifests: base resources, an Argo CD-managed overlay, cluster policies (Kyverno, network policies).

@@ -27,7 +27,7 @@ spec:
       labels:
         app.kubernetes.io/name: inventory-service
         app.kubernetes.io/component: worker
-        app.kubernetes.io/part-of: local-distributed-lab
+        app.kubernetes.io/part-of: distributed-ecommerce
       annotations:
         linkerd.io/inject: enabled
     spec:
@@ -39,7 +39,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: inventory-service
-          image: local-distributed-lab/inventory-service:latest
+          image: distributed-ecommerce/inventory-service:latest
           imagePullPolicy: IfNotPresent
           env:
             - name: ASPNETCORE_ENVIRONMENT

@@ -11,7 +11,7 @@
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
-  name: verify-local-distributed-lab-image-signatures
+  name: verify-distributed-ecommerce-image-signatures
 spec:
   validationFailureAction: Enforce
   background: false
@@ -25,13 +25,19 @@ spec:
                 - Pod
       verifyImages:
         - imageReferences:
-            - "ghcr.io/daniloitagyba/local-distributed-lab/*"
+            # Lowercase - Docker/OCI registry paths must be lowercase even
+            # though the GitHub repo itself is "DistributedEcommerce"
+            # (mixed case); see .github/workflows/ci.yml's IMAGE comment.
+            - "ghcr.io/daniloitagyba/distributed-ecommerce/*"
           mutateDigest: true
           attestors:
             - count: 1
               entries:
                 - keyless:
-                    subject: "https://github.com/daniloitagyba/local-distributed-lab/.github/workflows/ci.yml@refs/heads/main"
+                    # Case-sensitive: this must match the GitHub repository's
+                    # actual name exactly as GitHub reports it in the
+                    # Actions OIDC token subject, unlike the image path above.
+                    subject: "https://github.com/daniloitagyba/DistributedEcommerce/.github/workflows/ci.yml@refs/heads/main"
                     issuer: "https://token.actions.githubusercontent.com"
                     rekor:
                       url: https://rekor.sigstore.dev

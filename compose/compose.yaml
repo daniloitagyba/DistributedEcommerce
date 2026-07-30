@@ -1,7 +1,7 @@
-name: local-distributed-lab
+name: distributed-ecommerce
 
 x-api-common: &api-common
-  image: local-distributed-lab/orders-api:milestone-7
+  image: distributed-ecommerce/orders-api:milestone-7
   profiles: ["compose-apps"]
   restart: unless-stopped
   environment:
@@ -339,7 +339,7 @@ services:
 
   migrations:
     profiles: ["compose-apps"]
-    image: local-distributed-lab/orders-api:milestone-7
+    image: distributed-ecommerce/orders-api:milestone-7
     build:
       context: ..
       dockerfile: apps/src/Orders.Api/Dockerfile
@@ -383,7 +383,7 @@ services:
 
   orders-worker:
     profiles: ["compose-apps"]
-    image: local-distributed-lab/orders-worker:milestone-7
+    image: distributed-ecommerce/orders-worker:milestone-7
     build:
       context: ..
       dockerfile: apps/src/Orders.Worker/Dockerfile
@@ -415,7 +415,7 @@ services:
 
   payments-service:
     profiles: ["compose-apps"]
-    image: local-distributed-lab/payments-service:milestone-7
+    image: distributed-ecommerce/payments-service:milestone-7
     build:
       context: ..
       dockerfile: apps/src/Payments.Service/Dockerfile
@@ -444,7 +444,7 @@ services:
 
   catalog-service:
     profiles: ["compose-apps"]
-    image: local-distributed-lab/catalog-service:milestone-42-by-sku
+    image: distributed-ecommerce/catalog-service:milestone-42-by-sku
     build:
       context: ..
       dockerfile: apps/src/Catalog.Service/Dockerfile
@@ -466,7 +466,7 @@ services:
 
   inventory-service:
     profiles: ["compose-apps"]
-    image: local-distributed-lab/inventory-service:milestone-41-inventory
+    image: distributed-ecommerce/inventory-service:milestone-41-inventory
     build:
       context: ..
       dockerfile: apps/src/Inventory.Service/Dockerfile
@@ -496,7 +496,7 @@ services:
 
   cart-service:
     profiles: ["compose-apps"]
-    image: local-distributed-lab/cart-service:milestone-42-cart-redis-timeout-fix
+    image: distributed-ecommerce/cart-service:milestone-42-cart-redis-timeout-fix
     build:
       context: ..
       dockerfile: apps/src/Cart.Service/Dockerfile
@@ -517,7 +517,7 @@ services:
 
   storefront-service:
     profiles: ["compose-apps"]
-    image: local-distributed-lab/storefront-service:milestone-45-storefront-token-fix
+    image: distributed-ecommerce/storefront-service:milestone-45-storefront-token-fix
     build:
       context: ..
       dockerfile: apps/src/Storefront.Service/Dockerfile
@@ -776,7 +776,7 @@ networks:
   backend:
     internal: true
   k3s-bridge:
-    name: local-distributed-lab-k3s-bridge
+    name: distributed-ecommerce-k3s-bridge
     internal: true
     ipam:
       config:

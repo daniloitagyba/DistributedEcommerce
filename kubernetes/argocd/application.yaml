@@ -4,12 +4,12 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: local-distributed-lab
+  name: distributed-ecommerce
   namespace: argocd
 spec:
   project: default
   source:
-    repoURL: git@github.com:daniloitagyba/local-distributed-lab.git
+    repoURL: git@github.com:daniloitagyba/DistributedEcommerce.git
     targetRevision: main
     path: kubernetes/overlays/local
   destination:

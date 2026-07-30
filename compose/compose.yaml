@@ -289,6 +289,64 @@ services:
     cpus: 0.50
     stop_grace_period: 10s
 
+  # Milestone 49: an isolated 3-node MongoDB replica set used only to prove
+  # out secondaryPreferred stale reads and the w:majority latency cost
+  # (scripts/mongo-replica-set-test.sh) - NOT a change to the standalone
+  # `mongodb` service above that Catalog.Service actually depends on. Same
+  # reasoning as Milestone 27's postgres-ha and Milestone 47's
+  # kafka-quorum-demo: prove the pattern in isolation before proposing it
+  # for the live store. Gated behind the `mongo-replicaset-demo` profile.
+  mongo-rs1: &mongo-rs-common
+    image: mongo:8.0
+    profiles: ["mongo-replicaset-demo"]
+    command: ["mongod", "--replSet", "rs-demo", "--bind_ip_all"]
+    healthcheck: &mongo-rs-healthcheck
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks: ["backend"]
+    mem_limit: 256m
+    cpus: 0.5
+
+  mongo-rs2:
+    <<: *mongo-rs-common
+
+  mongo-rs3:
+    <<: *mongo-rs-common
+
+  mongo-rs-init:
+    image: mongo:8.0
+    profiles: ["mongo-replicaset-demo"]
+    depends_on:
+      mongo-rs1:
+        condition: service_healthy
+      mongo-rs2:
+        condition: service_healthy
+      mongo-rs3:
+        condition: service_healthy
+    networks: ["backend"]
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        mongosh --host mongo-rs1 --quiet --eval '
+          try {
+            rs.status();
+            print("replica set already initiated");
+          } catch (e) {
+            rs.initiate({
+              _id: "rs-demo",
+              members: [
+                { _id: 0, host: "mongo-rs1:27017", priority: 2 },
+                { _id: 1, host: "mongo-rs2:27017", priority: 1 },
+                { _id: 2, host: "mongo-rs3:27017", priority: 0, secondaryDelaySecs: 5 }
+              ]
+            });
+            print("replica set initiated - mongo-rs3 is a deliberately-lagging secondary (secondaryDelaySecs: 5)");
+          }
+        '
+
   toxiproxy:
     image: ghcr.io/shopify/toxiproxy:2.9.0
     restart: unless-stopped

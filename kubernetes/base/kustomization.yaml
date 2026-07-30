@@ -14,6 +14,8 @@ resources:
   - migration-job.yaml
   - payments-service.yaml
   - payments-migration-job.yaml
+  - catalog-service.yaml
+  - catalog-seed-job.yaml
   - network-policies.yaml
 labels:
   - pairs:

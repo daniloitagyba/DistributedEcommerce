@@ -122,6 +122,32 @@ services:
     cpus: 0.25
     stop_grace_period: 10s
 
+  mongodb:
+    # Milestone 40: the product catalog's store - heterogeneous per-category
+    # attributes (a t-shirt has size/color, a laptop has RAM/CPU) are a
+    # genuinely bad fit for the existing relational orders/payments schema
+    # (EAV, a JSONB column, or one table per category all being worse),
+    # not adopted just to have "a NoSQL milestone."
+    image: mongo:8.0
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: catalog
+    volumes:
+      - mongodb-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      backend:
+      k3s-bridge:
+        ipv4_address: 172.30.0.20
+    mem_limit: 256m
+    cpus: 0.50
+    stop_grace_period: 10s
+
   toxiproxy:
     image: ghcr.io/shopify/toxiproxy:2.9.0
     restart: unless-stopped
@@ -407,6 +433,27 @@ services:
     cpus: 0.50
     stop_grace_period: 30s
 
+  catalog-service:
+    profiles: ["compose-apps"]
+    image: local-distributed-lab/catalog-service:milestone-40-catalog
+    build:
+      context: ..
+      dockerfile: apps/src/Catalog.Service/Dockerfile
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Mongo__ConnectionString: mongodb://mongodb:27017
+      Mongo__DatabaseName: catalog
+      InstanceId: catalog-service-1
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - backend
+    mem_limit: 256m
+    cpus: 0.50
+    stop_grace_period: 20s
+
   nginx:
     profiles: ["compose-apps"]
     image: nginx:1.28-alpine
@@ -525,6 +572,9 @@ services:
       backend:
       k3s-bridge:
         ipv4_address: 172.30.0.12
+      # rede overlay attachable compartilhada com outros projetos no mesmo host
+      # (ex: Farmate), que reaproveitam esse collector em vez de montar stack própria.
+      farmate-observability:
     mem_limit: 192m
     cpus: 0.50
     stop_grace_period: 20s
@@ -638,6 +688,8 @@ networks:
     ipam:
       config:
         - subnet: 172.30.0.0/24
+  farmate-observability:
+    external: true
 
 volumes:
   postgres-data:
@@ -649,3 +701,4 @@ volumes:
   grafana-data:
   minio-data:
   pyroscope-data:
+  mongodb-data:

@@ -1,0 +1,78 @@
+using Catalog.Service.Data;
+using Catalog.Service.Domain;
+using MongoDB.Driver;
+using Testcontainers.MongoDb;
+
+namespace Catalog.IntegrationTests;
+
+public sealed class ProductRepositoryTests : IAsyncLifetime
+{
+    private MongoDbContainer _mongo = null!;
+    private ProductRepository _repository = null!;
+
+    public async Task InitializeAsync()
+    {
+        _mongo = new MongoDbBuilder("mongo:8.0").Build();
+        await _mongo.StartAsync();
+
+        var client = new MongoClient(_mongo.GetConnectionString());
+        var database = client.GetDatabase("catalog_test");
+        _repository = new ProductRepository(database);
+        await _repository.EnsureIndexesAsync(CancellationToken.None);
+    }
+
+    public async Task DisposeAsync()
+    {
+        await _mongo.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task InsertedProductCanBeFoundByIdAndListedByCategory()
+    {
+        var product = new Product
+        {
+            Name = "Test Notebook",
+            Description = "A notebook for testing.",
+            CategorySlug = "electronics",
+            Price = 1999.90m,
+            Currency = "BRL",
+            Sku = $"SKU-TEST-{Guid.NewGuid():N}",
+            Attributes = new Dictionary<string, string> { ["ram"] = "8GB" },
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+
+        await _repository.InsertAsync(product, CancellationToken.None);
+
+        var fetched = await _repository.FindByIdAsync(product.Id, CancellationToken.None);
+        var listed = await _repository.ListAsync("electronics", skip: 0, limit: 10, CancellationToken.None);
+        var count = await _repository.CountAsync("electronics", CancellationToken.None);
+        var otherCategory = await _repository.ListAsync("books", skip: 0, limit: 10, CancellationToken.None);
+
+        Assert.NotNull(fetched);
+        Assert.Equal(product.Sku, fetched!.Sku);
+        Assert.Equal("8GB", fetched.Attributes["ram"]);
+        Assert.Contains(listed, item => item.Id == product.Id);
+        Assert.Equal(1, count);
+        Assert.DoesNotContain(otherCategory, item => item.Id == product.Id);
+    }
+
+    [Fact]
+    public async Task FindByIdAsyncReturnsNullForAMalformedId()
+    {
+        var result = await _repository.FindByIdAsync("not-a-valid-object-id", CancellationToken.None);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task DuplicateSkuIsRejectedByTheUniqueIndex()
+    {
+        var sku = $"SKU-DUP-{Guid.NewGuid():N}";
+        var first = new Product { Name = "First", CategorySlug = "books", Price = 10m, Sku = sku, CreatedAt = DateTimeOffset.UtcNow };
+        var second = new Product { Name = "Second", CategorySlug = "books", Price = 20m, Sku = sku, CreatedAt = DateTimeOffset.UtcNow };
+
+        await _repository.InsertAsync(first, CancellationToken.None);
+
+        await Assert.ThrowsAsync<MongoWriteException>(() => _repository.InsertAsync(second, CancellationToken.None));
+    }
+}

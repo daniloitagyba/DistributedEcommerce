@@ -153,3 +153,20 @@ endpoints:
   - addresses: ["172.30.0.19"]
     conditions:
       ready: true
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: mongodb-compose
+  labels:
+    kubernetes.io/service-name: mongodb
+    endpointslice.kubernetes.io/managed-by: local-distributed-lab
+addressType: IPv4
+ports:
+  - name: mongodb
+    protocol: TCP
+    port: 27017
+endpoints:
+  - addresses: ["172.30.0.20"]
+    conditions:
+      ready: true

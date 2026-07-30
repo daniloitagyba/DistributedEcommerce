@@ -1,5 +1,4 @@
 using System.Text.Json;
-using BuildingBlocks;
 using Cart.Service.Domain;
 using Microsoft.Extensions.Options;
 using Polly;
@@ -16,15 +15,28 @@ namespace Cart.Service.Data;
 /// low-value state, unlike orders or payments. A cart is a single Redis
 /// Hash (field = Sku, value = JSON-encoded CartLineItem) so the whole
 /// cart can be read, and the whole cart's TTL refreshed, in one round trip.
+///
+/// Deliberately does NOT use BuildingBlocks' shared "redis" pipeline
+/// (ResilienceExtensions.RedisPipeline): that pipeline's 150ms timeout is
+/// tuned for RedisOrderCache's cache-aside use, where a timeout just means
+/// "fall back to Postgres" - fast failure is the right call when a
+/// fallback exists. Here there is no fallback, so the same aggressive
+/// timeout would just fail otherwise-successful requests under ordinary
+/// latency jitter (this is exactly what happened against a cold
+/// Testcontainers Redis on a loaded CI runner). CartResiliencePipeline
+/// keeps the circuit breaker but uses a timeout suited to being the only
+/// path to the data, not a fast-fail-and-degrade one.
 /// </summary>
 public sealed class CartStore(
     IConnectionMultiplexer connectionMultiplexer,
     ResiliencePipelineProvider<string> pipelineProvider,
     IOptions<CartOptions> options)
 {
+    public const string ResiliencePipelineName = "cart-redis";
+
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
     private readonly CartOptions _options = options.Value;
-    private readonly ResiliencePipeline _pipeline = pipelineProvider.GetPipeline(ResilienceExtensions.RedisPipeline);
+    private readonly ResiliencePipeline _pipeline = pipelineProvider.GetPipeline(ResiliencePipelineName);
 
     public Task<IReadOnlyList<CartLineItem>> GetAsync(string cartId, CancellationToken cancellationToken)
     {

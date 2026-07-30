@@ -20,6 +20,7 @@ builder.Services.AddOrdersObservability("cart-service", instanceId, builder.Envi
 builder.Services.AddProblemDetails();
 builder.Services.AddOrdersRedis(builder.Configuration);
 builder.Services.AddOrdersResilience();
+builder.Services.AddCartRedisResilience();
 builder.Services.AddOptions<CartOptions>()
     .Bind(builder.Configuration.GetSection(CartOptions.SectionName))
     .Validate(options => options.TimeToLiveSeconds > 0, "Cart time-to-live must be positive.")

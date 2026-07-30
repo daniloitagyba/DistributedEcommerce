@@ -485,7 +485,7 @@ services:
 
   cart-service:
     profiles: ["compose-apps"]
-    image: local-distributed-lab/cart-service:milestone-42-cart
+    image: local-distributed-lab/cart-service:milestone-42-cart-redis-timeout-fix
     build:
       context: ..
       dockerfile: apps/src/Cart.Service/Dockerfile

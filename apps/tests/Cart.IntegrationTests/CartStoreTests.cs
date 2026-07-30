@@ -14,6 +14,7 @@ public sealed class CartStoreTests : IAsyncLifetime
     private readonly RedisContainer _redis = new RedisBuilder("redis:7.4-alpine").Build();
     private readonly ResiliencePipelineProvider<string> _pipelineProvider = new ServiceCollection()
         .AddOrdersResilience()
+        .AddCartRedisResilience()
         .BuildServiceProvider()
         .GetRequiredService<ResiliencePipelineProvider<string>>();
     private ConnectionMultiplexer? _connectionMultiplexer;

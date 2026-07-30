@@ -17,7 +17,7 @@ images:
   - name: local-distributed-lab/inventory-service
     newTag: milestone-41-inventory
   - name: local-distributed-lab/cart-service
-    newTag: milestone-42-cart
+    newTag: milestone-42-cart-redis-timeout-fix
 patches:
   - target:
       kind: Rollout

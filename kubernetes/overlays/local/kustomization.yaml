@@ -7,19 +7,19 @@ resources:
   - connectivity-job.yaml
 images:
   - name: distributed-ecommerce/orders-api
-    newTag: milestone-43-saga-migration
+    newTag: rename-v1
   - name: distributed-ecommerce/orders-worker
-    newTag: milestone-44-bestsellers
+    newTag: rename-v1
   - name: distributed-ecommerce/payments-service
-    newTag: milestone-34-profiling-fix
+    newTag: rename-v1
   - name: distributed-ecommerce/catalog-service
-    newTag: milestone-44-bestsellers
+    newTag: rename-v1
   - name: distributed-ecommerce/inventory-service
-    newTag: milestone-43-commit-release
+    newTag: rename-v1
   - name: distributed-ecommerce/cart-service
-    newTag: milestone-42-cart-redis-timeout-fix
+    newTag: rename-v1
   - name: distributed-ecommerce/storefront-service
-    newTag: milestone-45-storefront-token-fix
+    newTag: rename-v1
 patches:
   - target:
       kind: Rollout

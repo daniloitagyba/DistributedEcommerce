@@ -113,6 +113,120 @@ services:
     cpus: 1.00
     stop_grace_period: 30s
 
+  # Milestone 47: an isolated 3-broker KRaft cluster used only to prove
+  # out the acks=all / min.insync.replicas / unclean.leader.election
+  # quadrant (scripts/kafka-quorum-durability-test.sh) - NOT a change to
+  # the single-broker `kafka` service above that the live orders-lab saga
+  # pipeline actually depends on. Same reasoning as Milestone 27's
+  # deliberately separate postgres-ha cluster: proving a replication
+  # pattern works earns the right to propose migrating the live topics to
+  # it later, rather than experimenting with leader kills directly against
+  # traffic real sagas depend on. Gated behind the `kafka-quorum-demo`
+  # profile so it costs nothing on the shared host except when the
+  # experiment is actually running.
+  #
+  # Controller quorum is on 3 DEDICATED controller-only nodes, separate
+  # from the 3 broker-only nodes the test pauses/kills - first attempt
+  # combined broker+controller on the same 3 nodes (like the single-node
+  # `kafka` service does), and pausing 2 of them to shrink the ISR for the
+  # replica-quorum experiment ALSO broke the KRaft controller quorum's own
+  # majority, since those are the same 2 nodes: every metadata call
+  # (`kafka-topics.sh --describe`) timed out cluster-wide with "Timed out
+  # waiting to send the call: listTopics" - not a broker-data-plane
+  # symptom, a controller-quorum-lost-majority one. Decoupling the two
+  # roles is what makes it possible to degrade the replica ISR being
+  # tested without also taking down the metadata layer needed to observe
+  # and react to it.
+  kafka-ctrl1: &kafka-ctrl-common
+    image: apache/kafka:4.1.1
+    profiles: ["kafka-quorum-demo"]
+    environment: &kafka-ctrl-env
+      CLUSTER_ID: 9w0JfbxPSS2SSeRqmN3pmg
+      KAFKA_PROCESS_ROLES: controller
+      KAFKA_LISTENERS: CONTROLLER://:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 101@kafka-ctrl1:9093,102@kafka-ctrl2:9093,103@kafka-ctrl3:9093
+      KAFKA_HEAP_OPTS: -Xms256m -Xmx256m
+      KAFKA_NODE_ID: 101
+    networks: ["backend"]
+    mem_limit: 320m
+    cpus: 0.25
+
+  kafka-ctrl2:
+    <<: *kafka-ctrl-common
+    environment:
+      <<: *kafka-ctrl-env
+      KAFKA_NODE_ID: 102
+
+  kafka-ctrl3:
+    <<: *kafka-ctrl-common
+    environment:
+      <<: *kafka-ctrl-env
+      KAFKA_NODE_ID: 103
+
+  kafka-q1: &kafka-quorum-common
+    image: apache/kafka:4.1.1
+    profiles: ["kafka-quorum-demo"]
+    depends_on: [kafka-ctrl1, kafka-ctrl2, kafka-ctrl3]
+    environment: &kafka-quorum-env
+      CLUSTER_ID: 9w0JfbxPSS2SSeRqmN3pmg
+      KAFKA_PROCESS_ROLES: broker
+      KAFKA_LISTENERS: PLAINTEXT://:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 101@kafka-ctrl1:9093,102@kafka-ctrl2:9093,103@kafka-ctrl3:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_NUM_PARTITIONS: 1
+      KAFKA_HEAP_OPTS: -Xms384m -Xmx384m
+      KAFKA_NODE_ID: 1
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-q1:9092
+    healthcheck: &kafka-quorum-healthcheck
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/9092'"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+    networks: ["backend"]
+    mem_limit: 512m
+    cpus: 0.5
+
+  kafka-q2:
+    <<: *kafka-quorum-common
+    environment:
+      <<: *kafka-quorum-env
+      KAFKA_NODE_ID: 2
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-q2:9092
+
+  kafka-q3:
+    <<: *kafka-quorum-common
+    environment:
+      <<: *kafka-quorum-env
+      KAFKA_NODE_ID: 3
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-q3:9092
+
+  kafka-quorum-init:
+    image: apache/kafka:4.1.1
+    profiles: ["kafka-quorum-demo"]
+    depends_on:
+      kafka-q1:
+        condition: service_healthy
+      kafka-q2:
+        condition: service_healthy
+      kafka-q3:
+        condition: service_healthy
+    networks: ["backend"]
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka-q1:9092 --create --if-not-exists \
+          --topic quorum-demo.events.v1 --partitions 1 --replication-factor 3
+
   redis:
     image: redis:7.4-alpine
     restart: unless-stopped

@@ -89,6 +89,36 @@ spec:
     - group: policy.linkerd.io
       kind: NetworkAuthentication
       name: k3s-node-bridge-gateway
+---
+# Milestone 45: the exact same class of regression M31 already found and
+# documented above - a third real caller (Storefront.Service's
+# checkout proxy) hitting this Server's mesh-level allow-list for the
+# first time and getting a real 403 from Linkerd itself, in ~6ms, before
+# the request ever reached Orders.Api's own JWT auth. OR'd with the two
+# policies above rather than replacing either.
+apiVersion: policy.linkerd.io/v1alpha1
+kind: MeshTLSAuthentication
+metadata:
+  name: storefront-service-identity
+  namespace: orders-lab
+spec:
+  identities:
+    - "storefront-service.orders-lab.serviceaccount.identity.linkerd.cluster.local"
+---
+apiVersion: policy.linkerd.io/v1alpha1
+kind: AuthorizationPolicy
+metadata:
+  name: orders-api-allow-storefront-service
+  namespace: orders-lab
+spec:
+  targetRef:
+    group: policy.linkerd.io
+    kind: Server
+    name: orders-api-http
+  requiredAuthenticationRefs:
+    - group: policy.linkerd.io
+      kind: MeshTLSAuthentication
+      name: storefront-service-identity
 
 # Milestone 30 deliberately does NOT add an equivalent Server/
 # AuthorizationPolicy pair for orders-api's gRPC port (8081/"grpc").

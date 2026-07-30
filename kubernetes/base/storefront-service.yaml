@@ -25,6 +25,7 @@ spec:
       annotations:
         linkerd.io/inject: enabled
     spec:
+      serviceAccountName: storefront-service
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30
       securityContext:

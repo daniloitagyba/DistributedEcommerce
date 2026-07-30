@@ -21,6 +21,7 @@ resources:
   - inventory-seed-job.yaml
   - cart-service.yaml
   - storefront-service.yaml
+  - storefront-service-serviceaccount.yaml
   - network-policies.yaml
 labels:
   - pairs:

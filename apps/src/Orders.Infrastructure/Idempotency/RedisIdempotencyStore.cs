@@ -54,6 +54,13 @@ public sealed class RedisIdempotencyStore(
         var lockTimeout = TimeSpan.FromMilliseconds(_options.LockTimeoutMilliseconds);
         var acquiredLock = await database.LockTakeAsync(lockKey, LockToken, lockTimeout);
 
+        // Milestone 48: drawn once per acquisition, strictly increasing,
+        // independent of the lock itself - see RedisFencedWrite for why the
+        // lock's own timeout can't be trusted to prevent a stale write.
+        var fenceToken = acquiredLock
+            ? await database.NextFenceTokenAsync(IdempotencyKeys.FenceSequenceKey(idempotencyKey))
+            : 0;
+
         if (!acquiredLock)
         {
             for (var attempt = 0; attempt < _options.LockRetryAttempts; attempt++)
@@ -78,7 +85,17 @@ public sealed class RedisIdempotencyStore(
         {
             var created = await factory(cancellationToken);
             var payload = JsonSerializer.Serialize(created, SerializerOptions);
-            await database.StringSetAsync(cacheKey, payload, TimeSpan.FromHours(_options.TimeToLiveHours));
+            var applied = await database.FencedSetAsync(
+                cacheKey, fenceToken, payload, TimeSpan.FromHours(_options.TimeToLiveHours));
+            if (!applied)
+            {
+                // This holder's lock had already expired and been
+                // re-acquired by someone with a newer token by the time
+                // this write landed - discarding it, not overwriting
+                // whatever the newer holder already wrote.
+                OrdersTelemetry.RecordFencedWriteRejected("idempotency");
+            }
+
             return new IdempotencyLookup(created, WasReplayed: false);
         }
         finally

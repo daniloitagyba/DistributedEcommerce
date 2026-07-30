@@ -22,6 +22,7 @@ public static class OrdersTelemetry
     private static readonly Counter<long> CacheBypassCounter = Meter.CreateCounter<long>("orders.cache.bypassed");
     private static readonly Counter<long> IdempotentReplayCounter = Meter.CreateCounter<long>("orders.idempotency.replayed");
     private static readonly Counter<long> IdempotencyBypassCounter = Meter.CreateCounter<long>("orders.idempotency.bypassed");
+    private static readonly Counter<long> FencedWriteRejectedCounter = Meter.CreateCounter<long>("orders.redis.fenced_write_rejected");
     private static readonly Counter<long> RateLimitedCounter = Meter.CreateCounter<long>("orders.rate_limited");
     private static readonly Counter<long> DistributedRateLimitedCounter = Meter.CreateCounter<long>("orders.rate_limited.distributed");
     private static readonly Counter<long> DistributedRateLimitBypassCounter = Meter.CreateCounter<long>("orders.rate_limit.distributed_bypassed");
@@ -101,6 +102,18 @@ public static class OrdersTelemetry
     public static void RecordIdempotencyBypass()
     {
         IdempotencyBypassCounter.Add(1);
+    }
+
+    /// <summary>
+    /// A lock holder's write lost the fencing-token race (Milestone 48) -
+    /// it was still trying to write after its lock had already expired and
+    /// been re-acquired by someone else. Should be rare; a nonzero rate
+    /// under sustained load means the lock timeout is set too aggressively
+    /// for how long the guarded work actually takes.
+    /// </summary>
+    public static void RecordFencedWriteRejected(string store)
+    {
+        FencedWriteRejectedCounter.Add(1, new KeyValuePair<string, object?>("store", store));
     }
 
     public static void RecordRateLimited()

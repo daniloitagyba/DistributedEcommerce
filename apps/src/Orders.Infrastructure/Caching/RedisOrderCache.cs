@@ -51,6 +51,11 @@ public sealed class RedisOrderCache(
         var lockTimeout = TimeSpan.FromMilliseconds(_options.LockTimeoutMilliseconds);
         var acquiredLock = await database.LockTakeAsync(lockKey, LockToken, lockTimeout);
 
+        // Milestone 48: drawn once per acquisition, strictly increasing,
+        // independent of the lock itself - see RedisFencedWrite for why the
+        // lock's own timeout can't be trusted to prevent a stale write.
+        var fenceToken = acquiredLock ? await database.NextFenceTokenAsync(OrderCacheKeys.FenceSequenceKey(id)) : 0;
+
         if (!acquiredLock)
         {
             for (var attempt = 0; attempt < _options.LockRetryAttempts; attempt++)
@@ -75,7 +80,16 @@ public sealed class RedisOrderCache(
             if (value is not null)
             {
                 var payload = JsonSerializer.Serialize(value, SerializerOptions);
-                await database.StringSetAsync(cacheKey, payload, TimeSpan.FromSeconds(_options.TimeToLiveSeconds));
+                var applied = await database.FencedSetAsync(
+                    cacheKey, fenceToken, payload, TimeSpan.FromSeconds(_options.TimeToLiveSeconds));
+                if (!applied)
+                {
+                    // This holder's lock had already expired and been
+                    // re-acquired by someone with a newer token by the time
+                    // this write landed - discarding it, not overwriting
+                    // whatever the newer holder already wrote.
+                    OrdersTelemetry.RecordFencedWriteRejected("order-cache");
+                }
             }
 
             OrdersTelemetry.RecordCacheMiss();

@@ -1,7 +1,5 @@
 # Repository Guidance
 
-All source code, builds, containers, Kubernetes commands, logs, and tests run on the Ubuntu server in `/srv/local-distributed-lab`.
-
 ## Engineering standards
 
 - Write code, identifiers, comments, documentation, and configuration names in English.

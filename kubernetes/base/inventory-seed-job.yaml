@@ -1,0 +1,72 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: inventory-seed-m41
+  labels:
+    app.kubernetes.io/name: inventory-seed
+    app.kubernetes.io/component: migration
+  annotations:
+    # PostSync, not PreSync - matches Milestone 40's catalog-seed-m40
+    # precedent: seeding demo data only needs the schema (created by the
+    # PreSync inventory-migrations Job) and postgres itself, both of which
+    # are guaranteed to exist by the time PostSync hooks run. Using PostSync
+    # here sidesteps any same-phase hook-ordering ambiguity between this Job
+    # and inventory-migrations rather than relying on both being PreSync and
+    # hoping Argo runs them in file order.
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: inventory-seed
+        app.kubernetes.io/component: migration
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: inventory-seed
+          image: local-distributed-lab/inventory-service:latest
+          imagePullPolicy: IfNotPresent
+          # Idempotent (InventorySeeder no-ops if any row already exists),
+          # safe to run on every sync like the migration Jobs.
+          args: ["--seed"]
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: Production
+            - name: ConnectionStrings__Inventory
+              valueFrom:
+                secretKeyRef:
+                  name: orders-runtime
+                  key: inventory-connection-string
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector:4317
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: grpc
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: k8s.namespace.name=orders-lab
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: temporary-files
+              mountPath: /tmp
+      volumes:
+        - name: temporary-files
+          emptyDir:
+            sizeLimit: 32Mi

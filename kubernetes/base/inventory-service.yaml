@@ -1,0 +1,148 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory-service
+  labels:
+    app.kubernetes.io/name: inventory-service
+    app.kubernetes.io/component: worker
+spec:
+  # 2 replicas is load-bearing for this milestone, not just availability:
+  # the same-Sku oversell-prevention test only means something if there is
+  # more than one consumer instance in the group that COULD race for a
+  # partition. With replicas: 1 the "Kafka partition ownership prevents the
+  # race" claim would be untested - correctness would be indistinguishable
+  # from there simply being nothing else running.
+  replicas: 2
+  revisionHistoryLimit: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: inventory-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: inventory-service
+        app.kubernetes.io/component: worker
+        app.kubernetes.io/part-of: local-distributed-lab
+      annotations:
+        linkerd.io/inject: enabled
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: inventory-service
+          image: local-distributed-lab/inventory-service:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: Production
+            - name: ConnectionStrings__Inventory
+              valueFrom:
+                secretKeyRef:
+                  name: orders-runtime
+                  key: inventory-connection-string
+            - name: Kafka__BootstrapServers
+              value: kafka:9092
+            - name: Kafka__ReservationRequestedTopic
+              value: inventory.reservation-requested.v1
+            - name: Kafka__ReservationRepliedTopic
+              value: inventory.reservation-replied.v1
+            - name: Kafka__DeadLetterTopic
+              value: inventory.reservation.dlq.v1
+            - name: Kafka__ConsumerGroup
+              value: inventory-service
+            - name: Kafka__ClientId
+              value: inventory-service-k3s
+            - name: InstanceId
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector:4317
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: grpc
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: k8s.namespace.name=orders-lab
+            - name: PYROSCOPE_PROFILING_ENABLED
+              value: "1"
+            - name: PYROSCOPE_SERVER_ADDRESS
+              value: http://pyroscope:4040
+            - name: PYROSCOPE_APPLICATION_NAME
+              value: inventory-service
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            failureThreshold: 30
+            periodSeconds: 2
+            timeoutSeconds: 2
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 96Mi
+            limits:
+              cpu: 1000m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: temporary-files
+              mountPath: /tmp
+      volumes:
+        - name: temporary-files
+          emptyDir:
+            sizeLimit: 32Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventory-service
+  labels:
+    app.kubernetes.io/name: inventory-service
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: inventory-service
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: inventory-service
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: inventory-service

@@ -190,6 +190,9 @@ services:
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic orders-cdc.public.outbox_messages --partitions 3 --replication-factor 1 --config retention.ms=86400000
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic payments.decision-requested.v1 --partitions 3 --replication-factor 1 --config retention.ms=86400000
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic payments.decision-replied.v1 --partitions 3 --replication-factor 1 --config retention.ms=86400000
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic inventory.reservation-requested.v1 --partitions 3 --replication-factor 1 --config retention.ms=86400000
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic inventory.reservation-replied.v1 --partitions 3 --replication-factor 1 --config retention.ms=86400000
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic inventory.reservation.dlq.v1 --partitions 1 --replication-factor 1 --config retention.ms=86400000
     networks:
       - backend
     mem_limit: 256m
@@ -448,6 +451,32 @@ services:
     depends_on:
       mongodb:
         condition: service_healthy
+    networks:
+      - backend
+    mem_limit: 256m
+    cpus: 0.50
+    stop_grace_period: 20s
+
+  inventory-service:
+    profiles: ["compose-apps"]
+    image: local-distributed-lab/inventory-service:milestone-41-inventory
+    build:
+      context: ..
+      dockerfile: apps/src/Inventory.Service/Dockerfile
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Inventory: Host=postgres;Port=5432;Database=inventory;Username=orders;Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      Kafka__BootstrapServers: kafka:9092
+      Kafka__ReservationRequestedTopic: inventory.reservation-requested.v1
+      Kafka__ReservationRepliedTopic: inventory.reservation-replied.v1
+      Kafka__DeadLetterTopic: inventory.reservation.dlq.v1
+      Kafka__ConsumerGroup: inventory-service
+      Kafka__ClientId: inventory-service-1
+      InstanceId: inventory-service-1
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
     networks:
       - backend
     mem_limit: 256m

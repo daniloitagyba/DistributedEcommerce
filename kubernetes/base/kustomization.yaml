@@ -16,6 +16,9 @@ resources:
   - payments-migration-job.yaml
   - catalog-service.yaml
   - catalog-seed-job.yaml
+  - inventory-service.yaml
+  - inventory-migration-job.yaml
+  - inventory-seed-job.yaml
   - network-policies.yaml
 labels:
   - pairs:

@@ -14,6 +14,8 @@ images:
     newTag: milestone-34-profiling-fix
   - name: local-distributed-lab/catalog-service
     newTag: milestone-40-catalog-dupsku-fix
+  - name: local-distributed-lab/inventory-service
+    newTag: milestone-41-inventory
 patches:
   - target:
       kind: Rollout
@@ -60,6 +62,27 @@ patches:
   - target:
       kind: Job
       name: catalog-seed-m40
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never
+  - target:
+      kind: Deployment
+      name: inventory-service
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never
+  - target:
+      kind: Job
+      name: inventory-migrations-m41
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never
+  - target:
+      kind: Job
+      name: inventory-seed-m41
     patch: |-
       - op: replace
         path: /spec/template/spec/containers/0/imagePullPolicy

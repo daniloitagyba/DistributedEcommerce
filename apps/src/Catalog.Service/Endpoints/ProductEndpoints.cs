@@ -23,6 +23,7 @@ public static class ProductEndpoints
         group.MapGet("", ListAsync);
         group.MapGet("/by-ids", ListByIdsAsync);
         group.MapGet("/by-sku/{sku}", GetBySkuAsync);
+        group.MapGet("/bestsellers", GetBestsellersAsync);
         group.MapGet("/{id}", GetByIdAsync);
         group.MapPost("", CreateAsync);
 
@@ -68,6 +69,33 @@ public static class ProductEndpoints
     {
         var product = await repository.FindBySkuAsync(sku, cancellationToken);
         return product is null ? Results.NotFound() : Results.Ok(product);
+    }
+
+    private static async Task<IResult> GetBestsellersAsync(
+        string? category,
+        int? limit,
+        BestsellersReader bestsellersReader,
+        ProductRepository repository,
+        CancellationToken cancellationToken)
+    {
+        var effectiveLimit = Math.Clamp(limit ?? 10, 1, 50);
+        var ranked = await bestsellersReader.GetTopAsync(category, effectiveLimit, cancellationToken);
+
+        // Rank order comes from Redis, not from any query MongoDB can
+        // express - fetch each product individually (the list is at most
+        // 50 long) and reassemble in the Redis-given order rather than
+        // letting a batch Mongo query silently reorder them.
+        var items = new List<object>(ranked.Count);
+        foreach (var entry in ranked)
+        {
+            var product = await repository.FindBySkuAsync(entry.Sku, cancellationToken);
+            if (product is not null)
+            {
+                items.Add(new { product, unitsSold = entry.UnitsSold });
+            }
+        }
+
+        return Results.Ok(new { items, category });
     }
 
     private static async Task<IResult> GetByIdAsync(

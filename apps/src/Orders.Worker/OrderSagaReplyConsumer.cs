@@ -22,6 +22,8 @@ public sealed class OrderSagaReplyConsumer(
     IOptions<SagaOrchestrationOptions> options,
     IProducer<string, string> producer,
     SagaOrchestrationStore store,
+    IBestsellersStore bestsellersStore,
+    ICatalogClient catalogClient,
     ILogger<OrderSagaReplyConsumer> logger) : BackgroundService
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
@@ -186,6 +188,27 @@ public sealed class OrderSagaReplyConsumer(
         var outcome = reply.Committed ? "Confirmed" : "ConfirmedButCommitFailed";
         var latencyMs = (reply.DecidedAt - completed.RequestedAt).TotalMilliseconds;
         SagaOrchestratorLog.SagaCompleted(logger, reply.OrderId, outcome, latencyMs, completed.CorrelationId);
+
+        if (reply.Committed)
+        {
+            await RecordSaleBestEffortAsync(completed.Sku, completed.Quantity, cancellationToken);
+        }
+    }
+
+    // Analytics side-effect, not a saga step: a failure here (Redis or
+    // Catalog unreachable) must never fail or retry the saga completion it
+    // reacts to - see BestsellersStore's class comment.
+    private async Task RecordSaleBestEffortAsync(string sku, int quantity, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var categorySlug = await catalogClient.FindCategorySlugBySkuAsync(sku, cancellationToken);
+            await bestsellersStore.RecordSaleAsync(sku, categorySlug, quantity, cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            SagaOrchestratorLog.BestsellerTrackingFailed(logger, sku, exception);
+        }
     }
 
     private async Task HandleReleaseRepliedAsync(string payload, CancellationToken cancellationToken)

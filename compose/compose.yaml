@@ -397,6 +397,8 @@ services:
       Kafka__ConsumerGroup: orders-worker
       Kafka__ClientId: orders-worker-1
       SchemaRegistry__Url: http://schema-registry:8081
+      Redis__ConnectionString: redis:6379
+      Catalog__BaseUrl: http://catalog-service:8080
       InstanceId: orders-worker-1
     depends_on:
       kafka-init:
@@ -451,6 +453,7 @@ services:
       ASPNETCORE_ENVIRONMENT: Production
       Mongo__ConnectionString: mongodb://mongodb:27017
       Mongo__DatabaseName: catalog
+      Redis__ConnectionString: redis:6379
       InstanceId: catalog-service-1
     depends_on:
       mongodb:

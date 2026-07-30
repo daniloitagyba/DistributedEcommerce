@@ -80,6 +80,8 @@ spec:
               value: http://schema-registry:8081
             - name: Redis__ConnectionString
               value: redis:6379
+            - name: Catalog__BaseUrl
+              value: http://catalog-service
             - name: InstanceId
               valueFrom:
                 fieldRef:

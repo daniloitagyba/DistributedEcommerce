@@ -74,6 +74,10 @@ builder.Services.AddOptions<LeaderElectionOptions>()
     .Validate(options => !string.IsNullOrWhiteSpace(options.LeaseName), "Leader election lease name is required.")
     .Validate(options => options.LeaseDurationSeconds > options.RenewDeadlineSeconds, "Lease duration must exceed the renew deadline.")
     .ValidateOnStart();
+builder.Services.AddOptions<CatalogClientOptions>()
+    .Bind(builder.Configuration.GetSection(CatalogClientOptions.SectionName))
+    .Validate(options => !string.IsNullOrWhiteSpace(options.BaseUrl), "Catalog base URL is required.")
+    .ValidateOnStart();
 
 var connectionString = builder.Configuration.GetConnectionString("Orders")
     ?? throw new InvalidOperationException("Connection string 'Orders' is required.");
@@ -88,6 +92,13 @@ builder.Services.AddSingleton<OrderProjectionStore>();
 builder.Services.AddSingleton<OrderProjectionProcessor>();
 builder.Services.AddOrdersRedis(builder.Configuration);
 builder.Services.AddSingleton<IOrderCacheInvalidator, RedisOrderCacheInvalidator>();
+builder.Services.AddSingleton<IBestsellersStore, RedisBestsellersStore>();
+builder.Services.AddHttpClient<ICatalogClient, CatalogClient>((serviceProvider, client) =>
+{
+    var options = serviceProvider.GetRequiredService<IOptions<CatalogClientOptions>>().Value;
+    client.BaseAddress = new Uri(options.BaseUrl);
+    client.Timeout = TimeSpan.FromSeconds(3);
+}).AddStandardResilienceHandler();
 
 builder.Services.AddSingleton<IProducer<string, string>>(serviceProvider =>
 {

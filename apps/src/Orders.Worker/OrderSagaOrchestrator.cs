@@ -178,4 +178,7 @@ public sealed partial class SagaOrchestratorLog
 
     [LoggerMessage(EventId = 6010, Level = LogLevel.Error, Message = "Saga orchestrator failed to publish the next step's request for order {OrderId}")]
     public static partial void NextStepPublishFailed(ILogger logger, Guid orderId, Exception exception);
+
+    [LoggerMessage(EventId = 6011, Level = LogLevel.Warning, Message = "Bestseller tracking failed for sku {Sku} - the sale is not lost, only its ranking contribution is")]
+    public static partial void BestsellerTrackingFailed(ILogger logger, string sku, Exception exception);
 }

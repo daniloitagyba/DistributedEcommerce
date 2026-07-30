@@ -42,6 +42,8 @@ spec:
               value: mongodb://mongodb:27017
             - name: Mongo__DatabaseName
               value: catalog
+            - name: Redis__ConnectionString
+              value: redis:6379
             - name: InstanceId
               valueFrom:
                 fieldRef:

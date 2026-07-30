@@ -9,11 +9,11 @@ images:
   - name: local-distributed-lab/orders-api
     newTag: milestone-43-saga-migration
   - name: local-distributed-lab/orders-worker
-    newTag: milestone-43-saga-compensation
+    newTag: milestone-44-bestsellers
   - name: local-distributed-lab/payments-service
     newTag: milestone-34-profiling-fix
   - name: local-distributed-lab/catalog-service
-    newTag: milestone-42-by-sku
+    newTag: milestone-44-bestsellers
   - name: local-distributed-lab/inventory-service
     newTag: milestone-43-commit-release
   - name: local-distributed-lab/cart-service

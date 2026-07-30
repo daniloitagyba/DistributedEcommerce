@@ -39,6 +39,8 @@ builder.Services.AddSingleton<IMongoDatabase>(serviceProvider =>
 
 builder.Services.AddSingleton<ProductRepository>();
 builder.Services.AddSingleton<CategoryRepository>();
+builder.Services.AddOrdersRedis(builder.Configuration);
+builder.Services.AddSingleton<BestsellersReader>();
 builder.Services.AddHealthChecks()
     .AddCheck<MongoHealthCheck>("mongo", tags: ["ready"]);
 

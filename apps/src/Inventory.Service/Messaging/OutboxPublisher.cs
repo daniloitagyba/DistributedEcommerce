@@ -90,31 +90,13 @@ public sealed class OutboxPublisher(
         CancellationToken cancellationToken)
     {
         using var activity = CreateActivity(message);
-        InventoryReservationReplied reply;
 
         try
         {
-            if (!string.Equals(message.EventType, nameof(InventoryReservationReplied), StringComparison.Ordinal))
-            {
-                throw new JsonException($"Unsupported outbox event type '{message.EventType}'.");
-            }
-
-            reply = JsonSerializer.Deserialize<InventoryReservationReplied>(message.Payload, SerializerOptions)
-                ?? throw new JsonException("The outbox payload did not contain an InventoryReservationReplied event.");
-
-            using var logScope = logger.BeginScope(new Dictionary<string, object?>
-            {
-                ["CorrelationId"] = message.CorrelationId,
-                ["EventId"] = message.Id,
-                ["ReservationId"] = reply.ReservationId,
-                ["Sku"] = reply.Sku,
-                ["TraceId"] = activity?.TraceId.ToString() ?? string.Empty
-            });
-
-            await publisher.PublishAsync(reply, cancellationToken);
+            var (reservationId, sku) = await DispatchAsync(message, publisher, cancellationToken);
             message.MarkPublished(DateTimeOffset.UtcNow);
             OrdersTelemetry.RecordOutboxPublished(message.EventType);
-            OutboxPublisherLog.Published(logger, message.Id, reply.ReservationId, reply.Sku, _instanceId);
+            OutboxPublisherLog.Published(logger, message.Id, reservationId, sku, _instanceId);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -127,6 +109,42 @@ public sealed class OutboxPublisher(
                 message.NextAttemptAt,
                 _instanceId,
                 exception);
+        }
+    }
+
+    private async Task<(Guid ReservationId, string Sku)> DispatchAsync(
+        OutboxMessage message,
+        IInventoryEventPublisher publisher,
+        CancellationToken cancellationToken)
+    {
+        switch (message.EventType)
+        {
+            case nameof(InventoryReservationReplied):
+            {
+                var reply = JsonSerializer.Deserialize<InventoryReservationReplied>(message.Payload, SerializerOptions)
+                    ?? throw new JsonException("The outbox payload did not contain an InventoryReservationReplied event.");
+                await publisher.PublishAsync(reply, cancellationToken);
+                return (reply.ReservationId, reply.Sku);
+            }
+
+            case nameof(InventoryReservationCommitReplied):
+            {
+                var reply = JsonSerializer.Deserialize<InventoryReservationCommitReplied>(message.Payload, SerializerOptions)
+                    ?? throw new JsonException("The outbox payload did not contain an InventoryReservationCommitReplied event.");
+                await publisher.PublishAsync(reply, cancellationToken);
+                return (reply.ReservationId, reply.Sku);
+            }
+
+            case nameof(InventoryReservationReleaseReplied):
+            {
+                var reply = JsonSerializer.Deserialize<InventoryReservationReleaseReplied>(message.Payload, SerializerOptions)
+                    ?? throw new JsonException("The outbox payload did not contain an InventoryReservationReleaseReplied event.");
+                await publisher.PublishAsync(reply, cancellationToken);
+                return (reply.ReservationId, reply.Sku);
+            }
+
+            default:
+                throw new JsonException($"Unsupported outbox event type '{message.EventType}'.");
         }
     }
 

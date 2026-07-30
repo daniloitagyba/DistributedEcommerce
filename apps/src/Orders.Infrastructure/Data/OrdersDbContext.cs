@@ -134,6 +134,12 @@ public sealed class OrdersDbContext(DbContextOptions<OrdersDbContext> options) :
         saga.Property(item => item.OrderId).HasColumnName("order_id").ValueGeneratedNever();
         saga.Property(item => item.CorrelationId).HasColumnName("correlation_id").HasMaxLength(128).IsRequired();
         saga.Property(item => item.RequestedAt).HasColumnName("requested_at").IsRequired();
+        saga.Property(item => item.Step).HasColumnName("step").HasMaxLength(32).IsRequired();
+        saga.Property(item => item.ReservationId).HasColumnName("reservation_id").IsRequired();
+        saga.Property(item => item.Sku).HasColumnName("sku").HasMaxLength(64).IsRequired();
+        saga.Property(item => item.Quantity).HasColumnName("quantity").IsRequired();
+        saga.Property(item => item.Amount).HasColumnName("amount").HasPrecision(18, 2).IsRequired();
+        saga.Property(item => item.Currency).HasColumnName("currency").HasMaxLength(3).IsRequired();
         saga.HasIndex(item => item.RequestedAt)
             .HasDatabaseName("ix_saga_orchestration_states_requested_at");
     }

@@ -46,4 +46,40 @@ public sealed class InventoryItem
         UpdatedAt = now;
         return true;
     }
+
+    /// <summary>
+    /// Turns a temporary hold into a permanent deduction: the stock never
+    /// returns to Available. This is the saga's "everything downstream
+    /// succeeded" outcome for a reservation.
+    /// </summary>
+    public bool TryCommit(int quantity, DateTimeOffset now)
+    {
+        if (ReservedQuantity < quantity)
+        {
+            return false;
+        }
+
+        ReservedQuantity -= quantity;
+        UpdatedAt = now;
+        return true;
+    }
+
+    /// <summary>
+    /// The saga's compensating transaction: gives held stock back to
+    /// Available. Called when a step downstream of the original reservation
+    /// (payment, in this lab) fails - the reservation itself was never the
+    /// problem, so it gets undone rather than left dangling.
+    /// </summary>
+    public bool TryRelease(int quantity, DateTimeOffset now)
+    {
+        if (ReservedQuantity < quantity)
+        {
+            return false;
+        }
+
+        ReservedQuantity -= quantity;
+        AvailableQuantity += quantity;
+        UpdatedAt = now;
+        return true;
+    }
 }

@@ -6,7 +6,15 @@ using Polly.Registry;
 
 namespace Orders.Worker;
 
-public sealed record SagaOrchestrationRecord(string CorrelationId, DateTimeOffset RequestedAt);
+public sealed record SagaOrchestrationRecord(
+    string CorrelationId,
+    DateTimeOffset RequestedAt,
+    string Step,
+    Guid ReservationId,
+    string Sku,
+    int Quantity,
+    decimal Amount,
+    string Currency);
 
 /// <summary>
 /// Milestone 36: Postgres-backed replacement for the Milestone 22
@@ -15,19 +23,33 @@ public sealed record SagaOrchestrationRecord(string CorrelationId, DateTimeOffse
 /// OrderProjectionStore's raw-Npgsql style rather than going through EF -
 /// EF only owns this table's schema (see Orders.Domain.SagaOrchestrationState
 /// and the AddSagaOrchestrationStates migration).
+///
+/// Milestone 43: one row per order still holds at most one pending reply,
+/// but now the reply could be for any of the saga's steps. TryAdvanceAsync
+/// is the general-purpose "move to the next step" operation, gated on the
+/// row's CURRENT step matching what the caller expects - a stale or
+/// duplicate reply for a step the saga has already moved past is a no-op
+/// (returns null) rather than corrupting a later step's state.
 /// </summary>
 public sealed class SagaOrchestrationStore(NpgsqlDataSource dataSource, ResiliencePipelineProvider<string> pipelineProvider)
 {
-    private const string TrackRequestedSql = """
-        INSERT INTO saga_orchestration_states (order_id, correlation_id, requested_at)
-        VALUES (@order_id, @correlation_id, @requested_at)
+    private const string TrackReserveRequestedSql = """
+        INSERT INTO saga_orchestration_states (order_id, correlation_id, requested_at, step, reservation_id, sku, quantity, amount, currency)
+        VALUES (@order_id, @correlation_id, @requested_at, @step, @reservation_id, @sku, @quantity, @amount, @currency)
         ON CONFLICT (order_id) DO NOTHING;
         """;
 
-    private const string TryCompleteRepliedSql = """
+    private const string TryAdvanceSql = """
+        UPDATE saga_orchestration_states
+        SET step = @next_step, requested_at = @requested_at
+        WHERE order_id = @order_id AND step = @expected_step
+        RETURNING correlation_id, requested_at, step, reservation_id, sku, quantity, amount, currency;
+        """;
+
+    private const string TryCompleteSql = """
         DELETE FROM saga_orchestration_states
-        WHERE order_id = @order_id
-        RETURNING correlation_id, requested_at;
+        WHERE order_id = @order_id AND step = @expected_step
+        RETURNING correlation_id, requested_at, step, reservation_id, sku, quantity, amount, currency;
         """;
 
     // FOR UPDATE SKIP LOCKED here is a belt-and-suspenders measure, not the
@@ -45,40 +67,69 @@ public sealed class SagaOrchestrationStore(NpgsqlDataSource dataSource, Resilien
             LIMIT @batch_size
             FOR UPDATE SKIP LOCKED
         )
-        RETURNING order_id, correlation_id, requested_at;
+        RETURNING order_id, correlation_id, requested_at, step, reservation_id, sku, quantity, amount, currency;
         """;
 
     private readonly ResiliencePipeline _pipeline = pipelineProvider.GetPipeline(ResilienceExtensions.PostgresPipeline);
 
-    public Task TrackRequestedAsync(
+    public Task TrackReserveRequestedAsync(
         Guid orderId,
         string correlationId,
+        Guid reservationId,
+        string sku,
+        int quantity,
+        decimal amount,
+        string currency,
         DateTimeOffset requestedAt,
         CancellationToken cancellationToken)
     {
         return _pipeline.ExecuteAsync(async ct =>
         {
-            await using var command = dataSource.CreateCommand(TrackRequestedSql);
+            await using var command = dataSource.CreateCommand(TrackReserveRequestedSql);
             command.Parameters.AddWithValue("order_id", NpgsqlDbType.Uuid, orderId);
             command.Parameters.AddWithValue("correlation_id", NpgsqlDbType.Varchar, correlationId);
             command.Parameters.AddWithValue("requested_at", NpgsqlDbType.TimestampTz, requestedAt);
+            command.Parameters.AddWithValue("step", NpgsqlDbType.Varchar, SagaStep.ReserveInventory);
+            command.Parameters.AddWithValue("reservation_id", NpgsqlDbType.Uuid, reservationId);
+            command.Parameters.AddWithValue("sku", NpgsqlDbType.Varchar, sku);
+            command.Parameters.AddWithValue("quantity", NpgsqlDbType.Integer, quantity);
+            command.Parameters.AddWithValue("amount", NpgsqlDbType.Numeric, amount);
+            command.Parameters.AddWithValue("currency", NpgsqlDbType.Varchar, currency);
             await command.ExecuteNonQueryAsync(ct);
         }, cancellationToken).AsTask();
     }
 
-    public Task<SagaOrchestrationRecord?> TryCompleteRepliedAsync(Guid orderId, CancellationToken cancellationToken)
+    public Task<SagaOrchestrationRecord?> TryAdvanceAsync(
+        Guid orderId,
+        string expectedCurrentStep,
+        string nextStep,
+        DateTimeOffset requestedAt,
+        CancellationToken cancellationToken)
     {
         return _pipeline.ExecuteAsync(async ct =>
         {
-            await using var command = dataSource.CreateCommand(TryCompleteRepliedSql);
+            await using var command = dataSource.CreateCommand(TryAdvanceSql);
             command.Parameters.AddWithValue("order_id", NpgsqlDbType.Uuid, orderId);
+            command.Parameters.AddWithValue("expected_step", NpgsqlDbType.Varchar, expectedCurrentStep);
+            command.Parameters.AddWithValue("next_step", NpgsqlDbType.Varchar, nextStep);
+            command.Parameters.AddWithValue("requested_at", NpgsqlDbType.TimestampTz, requestedAt);
             await using var reader = await command.ExecuteReaderAsync(ct);
-            if (!await reader.ReadAsync(ct))
-            {
-                return null;
-            }
+            return await reader.ReadAsync(ct) ? ReadRecord(reader) : null;
+        }, cancellationToken).AsTask();
+    }
 
-            return new SagaOrchestrationRecord(reader.GetString(0), reader.GetFieldValue<DateTimeOffset>(1));
+    public Task<SagaOrchestrationRecord?> TryCompleteAsync(
+        Guid orderId,
+        string expectedCurrentStep,
+        CancellationToken cancellationToken)
+    {
+        return _pipeline.ExecuteAsync(async ct =>
+        {
+            await using var command = dataSource.CreateCommand(TryCompleteSql);
+            command.Parameters.AddWithValue("order_id", NpgsqlDbType.Uuid, orderId);
+            command.Parameters.AddWithValue("expected_step", NpgsqlDbType.Varchar, expectedCurrentStep);
+            await using var reader = await command.ExecuteReaderAsync(ct);
+            return await reader.ReadAsync(ct) ? ReadRecord(reader) : null;
         }, cancellationToken).AsTask();
     }
 
@@ -100,10 +151,44 @@ public sealed class SagaOrchestrationStore(NpgsqlDataSource dataSource, Resilien
             {
                 claimed.Add((
                     reader.GetFieldValue<Guid>(0),
-                    new SagaOrchestrationRecord(reader.GetString(1), reader.GetFieldValue<DateTimeOffset>(2))));
+                    new SagaOrchestrationRecord(
+                        reader.GetString(1),
+                        reader.GetFieldValue<DateTimeOffset>(2),
+                        reader.GetString(3),
+                        reader.GetFieldValue<Guid>(4),
+                        reader.GetString(5),
+                        reader.GetInt32(6),
+                        reader.GetFieldValue<decimal>(7),
+                        reader.GetString(8))));
             }
 
             return (IReadOnlyList<(Guid, SagaOrchestrationRecord)>)claimed;
         }, cancellationToken).AsTask();
     }
+
+    private static SagaOrchestrationRecord ReadRecord(NpgsqlDataReader reader)
+    {
+        return new SagaOrchestrationRecord(
+            reader.GetString(0),
+            reader.GetFieldValue<DateTimeOffset>(1),
+            reader.GetString(2),
+            reader.GetFieldValue<Guid>(3),
+            reader.GetString(4),
+            reader.GetInt32(5),
+            reader.GetFieldValue<decimal>(6),
+            reader.GetString(7));
+    }
+}
+
+/// <summary>
+/// The four steps this saga walks through. Not an enum mapped by EF - the
+/// column is a plain string so ad hoc SQL inspection during development
+/// doesn't need to decode an integer.
+/// </summary>
+public static class SagaStep
+{
+    public const string ReserveInventory = "ReserveInventory";
+    public const string DecidePayment = "DecidePayment";
+    public const string CommitInventory = "CommitInventory";
+    public const string ReleaseInventory = "ReleaseInventory";
 }

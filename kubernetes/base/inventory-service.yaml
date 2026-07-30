@@ -55,6 +55,14 @@ spec:
               value: inventory.reservation-requested.v1
             - name: Kafka__ReservationRepliedTopic
               value: inventory.reservation-replied.v1
+            - name: Kafka__CommitRequestedTopic
+              value: inventory.reservation-commit-requested.v1
+            - name: Kafka__CommitRepliedTopic
+              value: inventory.reservation-commit-replied.v1
+            - name: Kafka__ReleaseRequestedTopic
+              value: inventory.reservation-release-requested.v1
+            - name: Kafka__ReleaseRepliedTopic
+              value: inventory.reservation-release-replied.v1
             - name: Kafka__DeadLetterTopic
               value: inventory.reservation.dlq.v1
             - name: Kafka__ConsumerGroup

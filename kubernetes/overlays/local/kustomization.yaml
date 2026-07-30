@@ -9,13 +9,13 @@ images:
   - name: local-distributed-lab/orders-api
     newTag: milestone-38-distributed-rate-limit
   - name: local-distributed-lab/orders-worker
-    newTag: milestone-36-leader-election
+    newTag: milestone-43-saga-compensation
   - name: local-distributed-lab/payments-service
     newTag: milestone-34-profiling-fix
   - name: local-distributed-lab/catalog-service
     newTag: milestone-42-by-sku
   - name: local-distributed-lab/inventory-service
-    newTag: milestone-41-inventory
+    newTag: milestone-43-commit-release
   - name: local-distributed-lab/cart-service
     newTag: milestone-42-cart-redis-timeout-fix
 patches:

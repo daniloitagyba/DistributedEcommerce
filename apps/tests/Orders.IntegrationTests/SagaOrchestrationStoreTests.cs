@@ -52,25 +52,51 @@ public sealed class SagaOrchestrationStoreTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task TrackedSagaCanBeCompletedByReplyAndDisappearsAfterward()
+    public async Task TrackedSagaAdvancesThroughStepsAndDisappearsOnCompletion()
     {
         var orderId = Guid.NewGuid();
+        var reservationId = Guid.NewGuid();
         var requestedAt = DateTimeOffset.UtcNow;
 
-        await _store!.TrackRequestedAsync(orderId, "correlation-1", requestedAt, CancellationToken.None);
-        var completed = await _store.TryCompleteRepliedAsync(orderId, CancellationToken.None);
-        var secondAttempt = await _store.TryCompleteRepliedAsync(orderId, CancellationToken.None);
+        await _store!.TrackReserveRequestedAsync(orderId, "correlation-1", reservationId, "SKU-1", 2, 49.90m, "BRL", requestedAt, CancellationToken.None);
+        var advanced = await _store.TryAdvanceAsync(orderId, SagaStep.ReserveInventory, SagaStep.DecidePayment, requestedAt.AddSeconds(1), CancellationToken.None);
+        var completed = await _store.TryCompleteAsync(orderId, SagaStep.DecidePayment, CancellationToken.None);
+        var secondAttempt = await _store.TryCompleteAsync(orderId, SagaStep.DecidePayment, CancellationToken.None);
+
+        Assert.NotNull(advanced);
+        Assert.Equal(SagaStep.DecidePayment, advanced!.Step);
+        Assert.Equal("correlation-1", advanced.CorrelationId);
+        Assert.Equal(reservationId, advanced.ReservationId);
+        Assert.Equal("SKU-1", advanced.Sku);
+        Assert.Equal(2, advanced.Quantity);
 
         Assert.NotNull(completed);
-        Assert.Equal("correlation-1", completed!.CorrelationId);
-        Assert.Equal(requestedAt.ToUnixTimeMilliseconds(), completed.RequestedAt.ToUnixTimeMilliseconds());
+        Assert.Equal(SagaStep.DecidePayment, completed!.Step);
         Assert.Null(secondAttempt);
     }
 
     [Fact]
-    public async Task TryCompleteRepliedAsyncReturnsNullForAnUntrackedOrder()
+    public async Task TryAdvanceAsyncIsANoOpWhenTheCurrentStepDoesNotMatch()
     {
-        var result = await _store!.TryCompleteRepliedAsync(Guid.NewGuid(), CancellationToken.None);
+        var orderId = Guid.NewGuid();
+        var requestedAt = DateTimeOffset.UtcNow;
+
+        await _store!.TrackReserveRequestedAsync(orderId, "correlation-1", Guid.NewGuid(), "SKU-1", 1, 49.90m, "BRL", requestedAt, CancellationToken.None);
+
+        // A stale/duplicate reply for a step the saga has already moved
+        // past (e.g. a redelivered Reserve reply arriving after the saga
+        // already advanced to DecidePayment) must not corrupt state.
+        var staleAdvance = await _store.TryAdvanceAsync(orderId, SagaStep.CommitInventory, SagaStep.DecidePayment, requestedAt, CancellationToken.None);
+        var realAdvance = await _store.TryAdvanceAsync(orderId, SagaStep.ReserveInventory, SagaStep.DecidePayment, requestedAt, CancellationToken.None);
+
+        Assert.Null(staleAdvance);
+        Assert.NotNull(realAdvance);
+    }
+
+    [Fact]
+    public async Task TryCompleteAsyncReturnsNullForAnUntrackedOrder()
+    {
+        var result = await _store!.TryCompleteAsync(Guid.NewGuid(), SagaStep.CommitInventory, CancellationToken.None);
 
         Assert.Null(result);
     }
@@ -83,12 +109,12 @@ public sealed class SagaOrchestrationStoreTests : IAsyncLifetime
         var staleOrderId = Guid.NewGuid();
         var freshOrderId = Guid.NewGuid();
 
-        await _store!.TrackRequestedAsync(staleOrderId, "stale-correlation", now - timeout - TimeSpan.FromSeconds(1), CancellationToken.None);
-        await _store.TrackRequestedAsync(freshOrderId, "fresh-correlation", now, CancellationToken.None);
+        await _store!.TrackReserveRequestedAsync(staleOrderId, "stale-correlation", Guid.NewGuid(), "SKU-1", 1, 49.90m, "BRL", now - timeout - TimeSpan.FromSeconds(1), CancellationToken.None);
+        await _store.TrackReserveRequestedAsync(freshOrderId, "fresh-correlation", Guid.NewGuid(), "SKU-1", 1, 49.90m, "BRL", now, CancellationToken.None);
 
         var firstClaim = await _store.ClaimTimedOutAsync(timeout, now, batchSize: 100, CancellationToken.None);
         var secondClaim = await _store.ClaimTimedOutAsync(timeout, now, batchSize: 100, CancellationToken.None);
-        var freshStillPending = await _store.TryCompleteRepliedAsync(freshOrderId, CancellationToken.None);
+        var freshStillPending = await _store.TryCompleteAsync(freshOrderId, SagaStep.ReserveInventory, CancellationToken.None);
 
         Assert.Single(firstClaim);
         Assert.Equal(staleOrderId, firstClaim[0].OrderId);

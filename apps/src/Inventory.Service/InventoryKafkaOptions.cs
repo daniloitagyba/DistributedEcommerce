@@ -10,6 +10,14 @@ public sealed class InventoryKafkaOptions
 
     public string ReservationRepliedTopic { get; init; } = "inventory.reservation-replied.v1";
 
+    public string CommitRequestedTopic { get; init; } = "inventory.reservation-commit-requested.v1";
+
+    public string CommitRepliedTopic { get; init; } = "inventory.reservation-commit-replied.v1";
+
+    public string ReleaseRequestedTopic { get; init; } = "inventory.reservation-release-requested.v1";
+
+    public string ReleaseRepliedTopic { get; init; } = "inventory.reservation-release-replied.v1";
+
     public string DeadLetterTopic { get; init; } = "inventory.reservation.dlq.v1";
 
     public string ConsumerGroup { get; init; } = "inventory-service";

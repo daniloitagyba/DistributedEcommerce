@@ -17,6 +17,12 @@ namespace Orders.Worker;
 /// autonomously decides on seeing OrderCreated, this orchestrator explicitly
 /// requests a decision and owns the timeout if one never arrives -
 /// something choreography has no equivalent for.
+///
+/// Milestone 43: step 1 of what's now a 4-step saga (Reserve Inventory ->
+/// Decide Payment -> Commit or Release Inventory -> saga closed). This
+/// class only kicks off step 1; OrderSagaReplyConsumer drives every
+/// subsequent transition as replies arrive, since only one reply is ever
+/// outstanding per order at a time.
 /// </summary>
 public sealed class OrderSagaOrchestrator(
     IOptions<SagaOrchestrationOptions> options,
@@ -62,7 +68,7 @@ public sealed class OrderSagaOrchestrator(
                     continue;
                 }
 
-                await RequestDecisionAsync(consumeResult, stoppingToken);
+                await RequestReservationAsync(consumeResult, stoppingToken);
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -75,7 +81,7 @@ public sealed class OrderSagaOrchestrator(
         }
     }
 
-    private async Task RequestDecisionAsync(ConsumeResult<string, byte[]> consumeResult, CancellationToken cancellationToken)
+    private async Task RequestReservationAsync(ConsumeResult<string, byte[]> consumeResult, CancellationToken cancellationToken)
     {
         OrderCreated orderCreated;
         try
@@ -92,29 +98,44 @@ public sealed class OrderSagaOrchestrator(
         }
 
         var requestedAt = DateTimeOffset.UtcNow;
-        await store.TrackRequestedAsync(orderCreated.OrderId, orderCreated.CorrelationId, requestedAt, cancellationToken);
+        var reservationId = Guid.NewGuid();
+        var (sku, quantity) = SagaSkuMapper.MapOrderToLineItem(orderCreated.OrderId);
 
-        var request = new PaymentDecisionRequested(
+        await store.TrackReserveRequestedAsync(
             orderCreated.OrderId,
+            orderCreated.CorrelationId,
+            reservationId,
+            sku,
+            quantity,
             orderCreated.Amount,
             orderCreated.Currency,
+            requestedAt,
+            cancellationToken);
+
+        var request = new InventoryReservationRequested(
+            reservationId,
+            orderCreated.OrderId,
+            sku,
+            quantity,
             orderCreated.CorrelationId,
             requestedAt);
 
-        using var activity = OrdersTelemetry.StartActivity("saga.orchestrator.request", ActivityKind.Producer, null, null);
+        using var activity = OrdersTelemetry.StartActivity("saga.orchestrator.reserve", ActivityKind.Producer, null, null);
         activity?.SetTag("order.id", orderCreated.OrderId);
+        activity?.SetTag("inventory.sku", sku);
         activity?.SetTag("correlation.id", orderCreated.CorrelationId);
 
+        // Keyed by Sku, not OrderId - see BuildingBlocks/InventoryContracts.cs.
         var message = new Message<string, string>
         {
-            Key = orderCreated.OrderId.ToString("N"),
+            Key = sku,
             Value = JsonSerializer.Serialize(request, SerializerOptions)
         };
 
         try
         {
-            await producer.ProduceAsync(_options.DecisionRequestedTopic, message, cancellationToken);
-            SagaOrchestratorLog.DecisionRequested(logger, orderCreated.OrderId, orderCreated.CorrelationId);
+            await producer.ProduceAsync(_options.ReservationRequestedTopic, message, cancellationToken);
+            SagaOrchestratorLog.ReservationRequested(logger, orderCreated.OrderId, sku, orderCreated.CorrelationId);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -137,18 +158,24 @@ public sealed partial class SagaOrchestratorLog
     [LoggerMessage(EventId = 6003, Level = LogLevel.Warning, Message = "Saga orchestrator received an invalid OrderCreated message")]
     public static partial void InvalidMessage(ILogger logger, Exception exception);
 
-    [LoggerMessage(EventId = 6004, Level = LogLevel.Information, Message = "OrchestratedSagaRequested order {OrderId} correlation {CorrelationId}")]
-    public static partial void DecisionRequested(ILogger logger, Guid orderId, string correlationId);
+    [LoggerMessage(EventId = 6004, Level = LogLevel.Information, Message = "OrchestratedSagaReservationRequested order {OrderId} sku {Sku} correlation {CorrelationId}")]
+    public static partial void ReservationRequested(ILogger logger, Guid orderId, string sku, string correlationId);
 
-    [LoggerMessage(EventId = 6005, Level = LogLevel.Error, Message = "Saga orchestrator failed to publish decision request for order {OrderId}")]
+    [LoggerMessage(EventId = 6005, Level = LogLevel.Error, Message = "Saga orchestrator failed to publish reservation request for order {OrderId}")]
     public static partial void RequestPublishFailed(ILogger logger, Guid orderId, Exception exception);
 
-    [LoggerMessage(EventId = 6006, Level = LogLevel.Information, Message = "OrchestratedSagaCompleted order {OrderId} approved={Approved} latencyMs={LatencyMs} correlation {CorrelationId}")]
-    public static partial void SagaCompleted(ILogger logger, Guid orderId, bool approved, double latencyMs, string correlationId);
+    [LoggerMessage(EventId = 6006, Level = LogLevel.Information, Message = "OrchestratedSagaCompleted order {OrderId} outcome={Outcome} finalStepLatencyMs={LatencyMs} correlation {CorrelationId}")]
+    public static partial void SagaCompleted(ILogger logger, Guid orderId, string outcome, double latencyMs, string correlationId);
 
-    [LoggerMessage(EventId = 6007, Level = LogLevel.Warning, Message = "OrchestratedSagaTimedOut order {OrderId} after {TimeoutSeconds}s correlation {CorrelationId}")]
-    public static partial void SagaTimedOut(ILogger logger, Guid orderId, int timeoutSeconds, string correlationId);
+    [LoggerMessage(EventId = 6007, Level = LogLevel.Warning, Message = "OrchestratedSagaTimedOut order {OrderId} at step {Step} after {TimeoutSeconds}s correlation {CorrelationId}")]
+    public static partial void SagaTimedOut(ILogger logger, Guid orderId, string step, int timeoutSeconds, string correlationId);
 
-    [LoggerMessage(EventId = 6008, Level = LogLevel.Warning, Message = "Saga orchestrator received a reply for an unknown or already-settled order {OrderId}")]
+    [LoggerMessage(EventId = 6008, Level = LogLevel.Warning, Message = "Saga orchestrator received a reply for an unknown, already-settled, or out-of-order order {OrderId}")]
     public static partial void UnknownReply(ILogger logger, Guid orderId);
+
+    [LoggerMessage(EventId = 6009, Level = LogLevel.Information, Message = "OrchestratedSagaAdvanced order {OrderId} step {Step} correlation {CorrelationId}")]
+    public static partial void Advanced(ILogger logger, Guid orderId, string step, string correlationId);
+
+    [LoggerMessage(EventId = 6010, Level = LogLevel.Error, Message = "Saga orchestrator failed to publish the next step's request for order {OrderId}")]
+    public static partial void NextStepPublishFailed(ILogger logger, Guid orderId, Exception exception);
 }

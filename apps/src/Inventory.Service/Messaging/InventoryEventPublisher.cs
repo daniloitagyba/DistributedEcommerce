@@ -12,6 +12,10 @@ namespace Inventory.Service.Messaging;
 public interface IInventoryEventPublisher
 {
     Task PublishAsync(InventoryReservationReplied reply, CancellationToken cancellationToken);
+
+    Task PublishAsync(InventoryReservationCommitReplied reply, CancellationToken cancellationToken);
+
+    Task PublishAsync(InventoryReservationReleaseReplied reply, CancellationToken cancellationToken);
 }
 
 public sealed class KafkaInventoryEventPublisher(
@@ -22,22 +26,42 @@ public sealed class KafkaInventoryEventPublisher(
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
     private readonly Polly.ResiliencePipeline _pipeline = pipelineProvider.GetPipeline(ResilienceExtensions.KafkaProducerPipeline);
 
-    public async Task PublishAsync(InventoryReservationReplied reply, CancellationToken cancellationToken)
+    public Task PublishAsync(InventoryReservationReplied reply, CancellationToken cancellationToken)
+    {
+        return PublishInternalAsync(options.Value.ReservationRepliedTopic, reply.OrderId, reply.CorrelationId, reply, cancellationToken);
+    }
+
+    public Task PublishAsync(InventoryReservationCommitReplied reply, CancellationToken cancellationToken)
+    {
+        return PublishInternalAsync(options.Value.CommitRepliedTopic, reply.OrderId, reply.CorrelationId, reply, cancellationToken);
+    }
+
+    public Task PublishAsync(InventoryReservationReleaseReplied reply, CancellationToken cancellationToken)
+    {
+        return PublishInternalAsync(options.Value.ReleaseRepliedTopic, reply.OrderId, reply.CorrelationId, reply, cancellationToken);
+    }
+
+    private async Task PublishInternalAsync<TReply>(
+        string topic,
+        Guid orderId,
+        string correlationId,
+        TReply reply,
+        CancellationToken cancellationToken)
     {
         var headers = new Headers();
-        AddHeader(headers, MessagingHeaders.CorrelationId, reply.CorrelationId);
+        AddHeader(headers, MessagingHeaders.CorrelationId, correlationId);
         AddHeader(headers, MessagingHeaders.TraceParent, Activity.Current?.Id);
         AddHeader(headers, MessagingHeaders.TraceState, Activity.Current?.TraceStateString);
 
         var message = new Message<string, string>
         {
-            Key = reply.OrderId.ToString("N"),
+            Key = orderId.ToString("N"),
             Value = JsonSerializer.Serialize(reply, SerializerOptions),
             Headers = headers
         };
 
         await _pipeline.ExecuteAsync(
-            async ct => await producer.ProduceAsync(options.Value.ReservationRepliedTopic, message, ct).WaitAsync(ct),
+            async ct => await producer.ProduceAsync(topic, message, ct).WaitAsync(ct),
             cancellationToken);
     }
 

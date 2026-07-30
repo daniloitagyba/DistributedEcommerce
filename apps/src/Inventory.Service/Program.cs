@@ -28,6 +28,10 @@ builder.Services.AddOptions<InventoryKafkaOptions>()
     .Validate(options => !string.IsNullOrWhiteSpace(options.BootstrapServers), "Kafka bootstrap servers are required.")
     .Validate(options => !string.IsNullOrWhiteSpace(options.ReservationRequestedTopic), "Kafka reservation-requested topic is required.")
     .Validate(options => !string.IsNullOrWhiteSpace(options.ReservationRepliedTopic), "Kafka reservation-replied topic is required.")
+    .Validate(options => !string.IsNullOrWhiteSpace(options.CommitRequestedTopic), "Kafka commit-requested topic is required.")
+    .Validate(options => !string.IsNullOrWhiteSpace(options.CommitRepliedTopic), "Kafka commit-replied topic is required.")
+    .Validate(options => !string.IsNullOrWhiteSpace(options.ReleaseRequestedTopic), "Kafka release-requested topic is required.")
+    .Validate(options => !string.IsNullOrWhiteSpace(options.ReleaseRepliedTopic), "Kafka release-replied topic is required.")
     .Validate(options => !string.IsNullOrWhiteSpace(options.DeadLetterTopic), "Kafka dead-letter topic is required.")
     .Validate(options => !string.IsNullOrWhiteSpace(options.ConsumerGroup), "Kafka consumer group is required.")
     .ValidateOnStart();
@@ -77,6 +81,8 @@ builder.Services.AddSingleton<IDeadLetterPublisher, KafkaDeadLetterPublisher>();
 builder.Services.AddSingleton<InventoryReservationMessageProcessor>();
 builder.Services.AddHostedService<OutboxPublisher>();
 builder.Services.AddHostedService<ReservationRequestedConsumer>();
+builder.Services.AddHostedService<ReservationCommitRequestedConsumer>();
+builder.Services.AddHostedService<ReservationReleaseRequestedConsumer>();
 builder.Services.AddHealthChecks()
     .AddCheck<PostgresHealthCheck>("postgres", tags: ["ready"])
     .AddCheck<KafkaHealthCheck>("kafka", tags: ["ready"]);

@@ -12,6 +12,18 @@ public sealed class SagaOrchestrationOptions
 
     public string DecisionRepliedTopic { get; init; } = "payments.decision-replied.v1";
 
+    public string ReservationRequestedTopic { get; init; } = "inventory.reservation-requested.v1";
+
+    public string ReservationRepliedTopic { get; init; } = "inventory.reservation-replied.v1";
+
+    public string CommitRequestedTopic { get; init; } = "inventory.reservation-commit-requested.v1";
+
+    public string CommitRepliedTopic { get; init; } = "inventory.reservation-commit-replied.v1";
+
+    public string ReleaseRequestedTopic { get; init; } = "inventory.reservation-release-requested.v1";
+
+    public string ReleaseRepliedTopic { get; init; } = "inventory.reservation-release-replied.v1";
+
     public string RequestConsumerGroup { get; init; } = "orders-saga-orchestrator";
 
     public string ReplyConsumerGroup { get; init; } = "orders-saga-orchestrator-reply";

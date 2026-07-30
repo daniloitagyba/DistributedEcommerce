@@ -731,6 +731,8 @@ services:
       CatalogProxy__BaseUrl: http://catalog-service:8080
       CartProxy__BaseUrl: http://cart-service:8080
       OrdersProxy__BaseUrl: http://orders-api-1:8080
+      InventoryProxy__BaseUrl: ${INVENTORY_PROXY_BASE_URL:-http://inventory-service:8080}
+      ProductSummary__HedgeDelayMilliseconds: ${PRODUCT_SUMMARY_HEDGE_DELAY_MS:-0}
       Keycloak__TokenUrl: http://keycloak:8080/realms/orders-lab/protocol/openid-connect/token
       Keycloak__ClientId: orders-api-clients
       Keycloak__ClientSecret: ${KEYCLOAK_CLIENT_SECRET:?KEYCLOAK_CLIENT_SECRET is required}

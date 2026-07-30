@@ -45,6 +45,10 @@ spec:
               value: http://cart-service
             - name: OrdersProxy__BaseUrl
               value: http://orders-api
+            - name: InventoryProxy__BaseUrl
+              value: http://inventory-service
+            - name: ProductSummary__HedgeDelayMilliseconds
+              value: "20"
             - name: Keycloak__TokenUrl
               value: http://keycloak:8080/realms/orders-lab/protocol/openid-connect/token
             - name: Keycloak__ClientId

@@ -30,6 +30,14 @@ builder.Services.AddOptions<OrdersProxyOptions>()
     .Bind(builder.Configuration.GetSection(OrdersProxyOptions.SectionName))
     .Validate(options => !string.IsNullOrWhiteSpace(options.BaseUrl), "Orders base URL is required.")
     .ValidateOnStart();
+builder.Services.AddOptions<InventoryProxyOptions>()
+    .Bind(builder.Configuration.GetSection(InventoryProxyOptions.SectionName))
+    .Validate(options => !string.IsNullOrWhiteSpace(options.BaseUrl), "Inventory base URL is required.")
+    .ValidateOnStart();
+builder.Services.AddOptions<ProductSummaryOptions>()
+    .Bind(builder.Configuration.GetSection(ProductSummaryOptions.SectionName))
+    .Validate(options => options.HedgeDelayMilliseconds >= 0, "Hedge delay cannot be negative.")
+    .ValidateOnStart();
 builder.Services.AddOptions<KeycloakOptions>()
     .Bind(builder.Configuration.GetSection(KeycloakOptions.SectionName))
     .Validate(options => !string.IsNullOrWhiteSpace(options.TokenUrl), "Keycloak token URL is required.")
@@ -55,6 +63,21 @@ builder.Services.AddHttpClient("orders", (serviceProvider, client) =>
     client.Timeout = TimeSpan.FromSeconds(5);
 }).AddStandardResilienceHandler();
 
+builder.Services.AddHttpClient("inventory", (serviceProvider, client) =>
+{
+    client.BaseAddress = new Uri(serviceProvider.GetRequiredService<IOptions<InventoryProxyOptions>>().Value.BaseUrl);
+    client.Timeout = TimeSpan.FromSeconds(5);
+})
+// Milestone 54's tail-latency benchmark routes this client through a
+// Toxiproxy latency toxic with a toxicity probability - Toxiproxy applies
+// that probability per proxied TCP connection, not per HTTP request, so a
+// pooled/reused keep-alive connection would be either always or never
+// toxic for its entire lifetime instead of the intended "N% of requests
+// are slow." Forcing a fresh connection per request makes the toxicity
+// roll happen per request, matching the fault this benchmark models.
+.ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMilliseconds(1) })
+.AddStandardResilienceHandler();
+
 builder.Services.AddHttpClient<KeycloakTokenProvider>().AddStandardResilienceHandler();
 
 builder.Services.AddHealthChecks();
@@ -67,6 +90,7 @@ app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => fa
 app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = _ => false });
 
 app.MapProxyEndpoints();
+app.MapStorefrontEndpoints();
 
 app.UseDefaultFiles();
 app.UseStaticFiles();

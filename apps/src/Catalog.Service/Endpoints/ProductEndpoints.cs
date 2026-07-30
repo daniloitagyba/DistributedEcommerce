@@ -1,5 +1,6 @@
 using Catalog.Service.Data;
 using Catalog.Service.Domain;
+using MongoDB.Driver;
 
 namespace Catalog.Service.Endpoints;
 
@@ -97,7 +98,15 @@ public static class ProductEndpoints
             CreatedAt = DateTimeOffset.UtcNow
         };
 
-        await repository.InsertAsync(product, cancellationToken);
+        try
+        {
+            await repository.InsertAsync(product, cancellationToken);
+        }
+        catch (MongoWriteException ex) when (ex.WriteError?.Category == ServerErrorCategory.DuplicateKey)
+        {
+            return Results.Conflict(new { message = $"A product with sku '{request.Sku}' already exists." });
+        }
+
         return Results.Created($"/products/{product.Id}", product);
     }
 }

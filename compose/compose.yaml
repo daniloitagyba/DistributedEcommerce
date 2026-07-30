@@ -435,7 +435,7 @@ services:
 
   catalog-service:
     profiles: ["compose-apps"]
-    image: local-distributed-lab/catalog-service:milestone-40-catalog
+    image: local-distributed-lab/catalog-service:milestone-40-catalog-dupsku-fix
     build:
       context: ..
       dockerfile: apps/src/Catalog.Service/Dockerfile

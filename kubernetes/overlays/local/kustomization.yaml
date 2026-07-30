@@ -13,7 +13,7 @@ images:
   - name: local-distributed-lab/payments-service
     newTag: milestone-34-profiling-fix
   - name: local-distributed-lab/catalog-service
-    newTag: milestone-40-catalog
+    newTag: milestone-40-catalog-dupsku-fix
 patches:
   - target:
       kind: Rollout

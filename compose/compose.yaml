@@ -116,7 +116,25 @@ services:
   redis:
     image: redis:7.4-alpine
     restart: unless-stopped
-    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    # Milestone 46 measured the gap left by `--save "" --appendonly no`
+    # (Milestone 42 promoted Redis to the cart's system of record, but
+    # nobody had measured what a crash actually costs since): killing
+    # Redis mid-load lost 300/300 in-flight carts, every time. AOF
+    # `everysec` closed that to 0/300 lost in the same test, at the same
+    # p99 latency as no persistence at all (~6ms); `always` bought no
+    # further measured durability here but cost a real p99 tax (~70ms) -
+    # so `everysec` is the default, not `always`. See
+    # docs/data/milestone-46-redis-durability.md for the numbers.
+    #
+    # Mode is still parameterized (not hardcoded) so
+    # scripts/cart-redis-durability-test.sh can flip it with
+    # --force-recreate for comparison: a `redis-cli CONFIG SET` only
+    # changes the running process's in-memory config - when Docker
+    # restarts this same container after a kill, it re-execs this literal
+    # `command:`, silently reverting to whatever's hardcoded here.
+    command: ["redis-server", "--save", "${REDIS_SAVE:-}", "--appendonly", "${REDIS_APPENDONLY:-yes}", "--appendfsync", "${REDIS_APPENDFSYNC:-everysec}"]
+    volumes:
+      - redis-data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -806,3 +824,4 @@ volumes:
   minio-data:
   pyroscope-data:
   mongodb-data:
+  redis-data:

@@ -6,7 +6,15 @@ metadata:
     app.kubernetes.io/name: catalog-seed
     app.kubernetes.io/component: migration
   annotations:
-    argocd.argoproj.io/hook: PreSync
+    # PostSync, not PreSync like the migration Jobs - seeding demo data has
+    # no ordering requirement relative to the app pods (unlike a schema
+    # migration, which must run before the app starts), only relative to
+    # the mongodb Service existing. As a PreSync hook this job deadlocked:
+    # PreSync hooks run before the main sync phase that creates that very
+    # Service, something that never surfaced for the Postgres/Kafka-backed
+    # PreSync migration jobs only because those Services already existed
+    # from earlier milestones by the time those hooks were ever added.
+    argocd.argoproj.io/hook: PostSync
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 spec:
   backoffLimit: 3

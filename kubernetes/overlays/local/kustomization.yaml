@@ -18,6 +18,8 @@ images:
     newTag: milestone-43-commit-release
   - name: local-distributed-lab/cart-service
     newTag: milestone-42-cart-redis-timeout-fix
+  - name: local-distributed-lab/storefront-service
+    newTag: milestone-45-storefront-token-fix
 patches:
   - target:
       kind: Rollout
@@ -92,6 +94,13 @@ patches:
   - target:
       kind: Deployment
       name: cart-service
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never
+  - target:
+      kind: Deployment
+      name: storefront-service
     patch: |-
       - op: replace
         path: /spec/template/spec/containers/0/imagePullPolicy

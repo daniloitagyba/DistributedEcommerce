@@ -515,6 +515,38 @@ services:
     cpus: 0.50
     stop_grace_period: 20s
 
+  storefront-service:
+    profiles: ["compose-apps"]
+    image: local-distributed-lab/storefront-service:milestone-45-storefront-token-fix
+    build:
+      context: ..
+      dockerfile: apps/src/Storefront.Service/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${LAB_BIND_ADDRESS:-127.0.0.1}:${STOREFRONT_PORT:-8089}:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      # Points directly at one orders-api replica rather than through nginx -
+      # this is a demo-scale simplification (no load balancing across the two
+      # replicas from the storefront's checkout path), not a production choice.
+      CatalogProxy__BaseUrl: http://catalog-service:8080
+      CartProxy__BaseUrl: http://cart-service:8080
+      OrdersProxy__BaseUrl: http://orders-api-1:8080
+      Keycloak__TokenUrl: http://keycloak:8080/realms/orders-lab/protocol/openid-connect/token
+      Keycloak__ClientId: orders-api-clients
+      Keycloak__ClientSecret: ${KEYCLOAK_CLIENT_SECRET:?KEYCLOAK_CLIENT_SECRET is required}
+      InstanceId: storefront-service-1
+    depends_on:
+      catalog-service:
+        condition: service_started
+      cart-service:
+        condition: service_started
+    networks:
+      - backend
+    mem_limit: 128m
+    cpus: 0.25
+    stop_grace_period: 10s
+
   nginx:
     profiles: ["compose-apps"]
     image: nginx:1.28-alpine

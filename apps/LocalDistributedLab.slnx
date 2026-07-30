@@ -10,6 +10,7 @@
     <Project Path="src/Orders.Infrastructure/Orders.Infrastructure.csproj" />
     <Project Path="src/Orders.Worker/Orders.Worker.csproj" />
     <Project Path="src/Payments.Service/Payments.Service.csproj" />
+    <Project Path="src/Storefront.Service/Storefront.Service.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Cart.IntegrationTests/Cart.IntegrationTests.csproj" />
@@ -18,5 +19,6 @@
     <Project Path="tests/Orders.ContractTests/Orders.ContractTests.csproj" />
     <Project Path="tests/Orders.IntegrationTests/Orders.IntegrationTests.csproj" />
     <Project Path="tests/Orders.UnitTests/Orders.UnitTests.csproj" />
+    <Project Path="tests/Storefront.UnitTests/Storefront.UnitTests.csproj" />
   </Folder>
 </Solution>

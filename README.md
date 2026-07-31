@@ -16,6 +16,8 @@ Seven .NET services (`Orders.Api`/`Orders.Worker`, `Payments.Service`, `Catalog.
 - **Resilience & chaos engineering** — Polly pipelines on every dependency, proven against real fault injection (Toxiproxy, Chaos Mesh network partitions and pod kills), not just configured and trusted.
 - **Distributed concurrency without a database lock** — Kafka partition-key ownership serializes per-SKU stock reservations; a leader election keeps a scheduled sweeper single-flighted across replicas.
 - **CQRS, event sourcing, schema evolution, CDC** — a denormalized read model, an append-only event store, Avro + Schema Registry, and Debezium change-data-capture.
+- **Formal & simulation verification** — a TLA+ model proving the saga can't resurrect a completed order, cross-checked against thousands of seeded deterministic-simulation runs of the real code.
+- **Quality & security guardrails in CI** — N+1 query detection, async/threading analyzers, memory-leak heap-growth checks, secrets/CVE scanning, mutation testing, and coverage gates, each calibrated against a real measurement, not a guess.
 - **Autoscaling** — CPU-based HPA and Kafka-lag-based KEDA scaling, load tested and measured, not asserted.
 - **GitOps & progressive delivery** — Argo CD reconciling from `main`, Argo Rollouts canaries gated by a Prometheus analysis template, with an actual proven automatic rollback.
 - **Service mesh, mTLS, authn/authz** — Linkerd, Keycloak-issued JWTs, Kyverno policy enforcement, and keyless-signed, SBOM'd, vulnerability-scanned container images.

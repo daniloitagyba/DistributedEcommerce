@@ -3,6 +3,7 @@ using Confluent.Kafka;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Orders.Application.Ports;
 using Orders.Infrastructure.Caching;
@@ -47,7 +48,9 @@ public static class InfrastructureServiceCollectionExtensions
             .Validate(options => options.MaximumRetryDelaySeconds > 0, "Outbox maximum retry delay must be positive.")
             .ValidateOnStart();
 
-        services.AddDbContext<OrdersDbContext>(options => options.UseNpgsql(connectionString));
+        services.AddDbContext<OrdersDbContext>((serviceProvider, options) =>
+            options.UseNpgsql(connectionString)
+                .AddNPlusOneDetection(serviceProvider.GetRequiredService<ILoggerFactory>()));
         services.AddOrdersSchemaRegistry(configuration);
 
         services.AddSingleton<IProducer<string, byte[]>>(serviceProvider =>

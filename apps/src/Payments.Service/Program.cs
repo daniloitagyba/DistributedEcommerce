@@ -57,7 +57,9 @@ builder.Services.AddOptions<PaymentDecisionRequestOptions>()
 var connectionString = builder.Configuration.GetConnectionString("Payments")
     ?? throw new InvalidOperationException("Connection string 'Payments' is required.");
 
-builder.Services.AddDbContext<PaymentsDbContext>(options => options.UseNpgsql(connectionString));
+builder.Services.AddDbContext<PaymentsDbContext>((serviceProvider, options) =>
+    options.UseNpgsql(connectionString)
+        .AddNPlusOneDetection(serviceProvider.GetRequiredService<ILoggerFactory>()));
 
 builder.Services.AddSingleton<IProducer<string, string>>(serviceProvider =>
 {

@@ -1,0 +1,38 @@
+name: mutation-testing
+
+# Stryker.NET is expensive (rebuilds and re-tests once per surviving
+# mutant) - run on demand or weekly, never on every push/PR like the main
+# ci.yml build-and-test gate.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 7 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  mutate-buildingblocks:
+    name: mutate BuildingBlocks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: restore dotnet tools
+        run: dotnet tool restore
+
+      - name: stryker
+        working-directory: apps/src/BuildingBlocks
+        run: dotnet stryker
+
+      - name: upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report
+          path: "apps/src/BuildingBlocks/StrykerOutput/**/reports/*.html"
+          retention-days: 30

@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <PackageReference Include="Confluent.SchemaRegistry" Version="2.15.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.4" />
     <PackageReference Include="Confluent.SchemaRegistry.Serdes.Avro" Version="2.15.0" />
     <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.17.0" />
     <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.17.0" />

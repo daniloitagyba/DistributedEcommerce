@@ -1,0 +1,25 @@
+title = "DistributedEcommerce gitleaks config"
+
+# Use gitleaks' default ruleset (secret patterns, entropy checks, known
+# provider key formats) and only add a narrow allowlist for strings this
+# codebase writes on purpose as clearly-labeled non-secrets - never a
+# blanket path/rule exclusion.
+[extend]
+useDefault = true
+
+[allowlist]
+regexes = [
+  '''test-password-not-a-secret''',
+  '''replace-with-a-random-local-development-password''',
+]
+# Milestone 17's SealedSecret resources (kubernetes/**/*sealed-secret.yaml)
+# are ciphertext, encrypted asymmetrically with the cluster's
+# sealed-secrets controller public key - only that controller's private
+# key (never committed) can decrypt them, which is the entire point of
+# committing them to git. Gitleaks' entropy-based generic-api-key rule
+# can't tell properly-sealed ciphertext from a real leaked secret; this
+# allowlists that one known-safe artifact type by path, not by rule or a
+# blanket path exclusion.
+paths = [
+  '''kubernetes/.*sealed-secret\.yaml$''',
+]

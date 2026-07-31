@@ -1,0 +1,54 @@
+name: codeql
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+  schedule:
+    # Catches new CodeQL query-pack rules against unchanged code, not just
+    # new commits - a code-level vulnerability class can be added to the
+    # ruleset after this code was last touched.
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: analyze (csharp)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: csharp
+          queries: security-extended
+
+      - name: build (CodeQL autobuild can't see multi-project .slnx solutions reliably)
+        run: |
+          dotnet restore apps/DistributedEcommerce.slnx
+          dotnet build apps/DistributedEcommerce.slnx --no-restore --configuration Release
+
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:csharp"

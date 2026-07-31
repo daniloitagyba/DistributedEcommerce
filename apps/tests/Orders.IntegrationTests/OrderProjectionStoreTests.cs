@@ -97,11 +97,11 @@ public sealed class OrderProjectionStoreTests : IAsyncLifetime
         Assert.True(await reader.ReadAsync());
 
         return (
-            reader.IsDBNull(0) ? null : reader.GetString(0),
-            reader.IsDBNull(1) ? null : reader.GetDecimal(1),
-            reader.IsDBNull(2) ? null : reader.GetString(2),
+            await reader.IsDBNullAsync(0) ? null : reader.GetString(0),
+            await reader.IsDBNullAsync(1) ? null : reader.GetDecimal(1),
+            await reader.IsDBNullAsync(2) ? null : reader.GetString(2),
             reader.GetString(3),
-            reader.IsDBNull(4) ? null : reader.GetFieldValue<DateTimeOffset>(4),
-            reader.IsDBNull(5) ? null : reader.GetFieldValue<DateTimeOffset>(5));
+            await reader.IsDBNullAsync(4) ? null : await reader.GetFieldValueAsync<DateTimeOffset>(4),
+            await reader.IsDBNullAsync(5) ? null : await reader.GetFieldValueAsync<DateTimeOffset>(5));
     }
 }

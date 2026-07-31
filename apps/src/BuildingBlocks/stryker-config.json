@@ -1,0 +1,14 @@
+{
+  "stryker-config": {
+    "test-projects": [
+      "../../tests/Orders.UnitTests/Orders.UnitTests.csproj"
+    ],
+    "reporters": ["html", "progress", "cleartext"],
+    "thresholds": {
+      "high": 80,
+      "low": 30,
+      "break": 10
+    },
+    "concurrency": 2
+  }
+}

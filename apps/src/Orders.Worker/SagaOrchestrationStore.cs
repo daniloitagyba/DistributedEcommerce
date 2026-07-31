@@ -114,7 +114,7 @@ public sealed class SagaOrchestrationStore(NpgsqlDataSource dataSource, Resilien
             command.Parameters.AddWithValue("next_step", NpgsqlDbType.Varchar, nextStep);
             command.Parameters.AddWithValue("requested_at", NpgsqlDbType.TimestampTz, requestedAt);
             await using var reader = await command.ExecuteReaderAsync(ct);
-            return await reader.ReadAsync(ct) ? ReadRecord(reader) : null;
+            return await reader.ReadAsync(ct) ? await ReadRecordAsync(reader, ct) : null;
         }, cancellationToken).AsTask();
     }
 
@@ -129,7 +129,7 @@ public sealed class SagaOrchestrationStore(NpgsqlDataSource dataSource, Resilien
             command.Parameters.AddWithValue("order_id", NpgsqlDbType.Uuid, orderId);
             command.Parameters.AddWithValue("expected_step", NpgsqlDbType.Varchar, expectedCurrentStep);
             await using var reader = await command.ExecuteReaderAsync(ct);
-            return await reader.ReadAsync(ct) ? ReadRecord(reader) : null;
+            return await reader.ReadAsync(ct) ? await ReadRecordAsync(reader, ct) : null;
         }, cancellationToken).AsTask();
     }
 
@@ -150,15 +150,15 @@ public sealed class SagaOrchestrationStore(NpgsqlDataSource dataSource, Resilien
             while (await reader.ReadAsync(ct))
             {
                 claimed.Add((
-                    reader.GetFieldValue<Guid>(0),
+                    reader.GetGuid(0),
                     new SagaOrchestrationRecord(
                         reader.GetString(1),
-                        reader.GetFieldValue<DateTimeOffset>(2),
+                        await reader.GetFieldValueAsync<DateTimeOffset>(2, ct),
                         reader.GetString(3),
-                        reader.GetFieldValue<Guid>(4),
+                        reader.GetGuid(4),
                         reader.GetString(5),
                         reader.GetInt32(6),
-                        reader.GetFieldValue<decimal>(7),
+                        reader.GetDecimal(7),
                         reader.GetString(8))));
             }
 
@@ -166,16 +166,16 @@ public sealed class SagaOrchestrationStore(NpgsqlDataSource dataSource, Resilien
         }, cancellationToken).AsTask();
     }
 
-    private static SagaOrchestrationRecord ReadRecord(NpgsqlDataReader reader)
+    private static async Task<SagaOrchestrationRecord> ReadRecordAsync(NpgsqlDataReader reader, CancellationToken cancellationToken)
     {
         return new SagaOrchestrationRecord(
             reader.GetString(0),
-            reader.GetFieldValue<DateTimeOffset>(1),
+            await reader.GetFieldValueAsync<DateTimeOffset>(1, cancellationToken),
             reader.GetString(2),
-            reader.GetFieldValue<Guid>(3),
+            reader.GetGuid(3),
             reader.GetString(4),
             reader.GetInt32(5),
-            reader.GetFieldValue<decimal>(6),
+            reader.GetDecimal(6),
             reader.GetString(7));
     }
 }

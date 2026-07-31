@@ -52,7 +52,9 @@ builder.Services.AddOptions<OutboxOptions>()
 var connectionString = builder.Configuration.GetConnectionString("Inventory")
     ?? throw new InvalidOperationException("Connection string 'Inventory' is required.");
 
-builder.Services.AddDbContext<InventoryDbContext>(options => options.UseNpgsql(connectionString));
+builder.Services.AddDbContext<InventoryDbContext>((serviceProvider, options) =>
+    options.UseNpgsql(connectionString)
+        .AddNPlusOneDetection(serviceProvider.GetRequiredService<ILoggerFactory>()));
 
 builder.Services.AddSingleton<IProducer<string, string>>(serviceProvider =>
 {

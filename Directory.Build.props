@@ -10,4 +10,16 @@
   <PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.csproj'">
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
+  <!-- Guardrail: race-condition-adjacent static analysis (VSTHRD rules) on
+       every project - unobserved/fire-and-forget tasks, async void, thread
+       affinity violations, sync-over-async blocking. Applied globally
+       here rather than per-csproj so a new service can't silently opt
+       out. Test/analysis-only, not a runtime dependency -
+       PrivateAssets=all keeps it out of published output. -->
+  <ItemGroup Condition="'$(MSBuildProjectExtension)' == '.csproj'">
+    <PackageReference Include="Microsoft.VisualStudio.Threading.Analyzers" Version="17.14.15">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
 </Project>

@@ -20,6 +20,61 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  secrets-scan:
+    name: secrets scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # scan full history, not just the current diff - a secret committed once and later removed still leaked
+
+      - name: gitleaks
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest \
+            detect --source /repo --config /repo/.gitleaks.toml --redact --exit-code 1
+
+  vulnerable-packages:
+    name: known-CVE NuGet dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: restore
+        run: dotnet restore apps/DistributedEcommerce.slnx
+
+      - name: list vulnerable packages (direct + transitive)
+        run: dotnet list apps/DistributedEcommerce.slnx package --vulnerable --include-transitive
+
+  complexity-and-module-size:
+    name: cyclomatic complexity and module size
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: cyclomatic complexity (lizard)
+        run: |
+          # Threshold 20: the current worst offender (InventoryReservationMessageProcessor's
+          # ProcessAsync/ProcessSettlementAsync, CCN 16-18) sits under it deliberately -
+          # this gates further growth, not a demand to refactor working, tested message
+          # processors as a side effect of adding the tool.
+          docker run --rm -v "$PWD/apps/src:/src" python:3.12-slim sh -c \
+            "pip install --quiet lizard && lizard /src --languages csharp --CCN 20"
+
+      - name: module size (max 500 lines per file)
+        run: |
+          overlong=$(find apps/src -name "*.cs" -not -path "*/obj/*" -not -path "*/bin/*" -not -path "*Migrations*" \
+            | xargs wc -l | awk '$1 > 500 && $2 != "total" {print}')
+          if [[ -n "$overlong" ]]; then
+            echo "Files over the 500-line module-size budget:"
+            echo "$overlong"
+            exit 1
+          fi
+          echo "No source file exceeds 500 lines."
+
   test:
     name: build and test
     runs-on: ubuntu-latest
@@ -40,7 +95,10 @@ jobs:
         run: dotnet build apps/DistributedEcommerce.slnx --no-restore --configuration Release
 
       - name: test
-        run: dotnet test apps/DistributedEcommerce.slnx --no-build --configuration Release --logger "trx;LogFileName=test-results.trx"
+        run: |
+          dotnet test apps/DistributedEcommerce.slnx --no-build --configuration Release \
+            --logger "trx;LogFileName=test-results.trx" \
+            --collect:"XPlat Code Coverage" --results-directory ./coverage
 
       - name: publish test results
         if: always()
@@ -49,6 +107,33 @@ jobs:
           name: test-results
           path: "apps/**/TestResults/**/*.trx"
           retention-days: 14
+
+      - name: coverage report
+        if: always()
+        run: |
+          dotnet tool install --global dotnet-reportgenerator-globaltool
+          reportgenerator -reports:"./coverage/**/coverage.cobertura.xml" \
+            -targetdir:./coverage/report -reporttypes:"Html;TextSummary"
+          cat ./coverage/report/Summary.txt
+
+      - name: upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: ./coverage/report
+          retention-days: 30
+
+      - name: enforce coverage threshold
+        run: |
+          # 35% - a few points under the 43.7% measured baseline (Milestone 59),
+          # so normal run-to-run variance doesn't trip it - gates regression, not
+          # a demand for the whole solution's untested infra/glue code to jump to
+          # a high bar overnight.
+          line_coverage=$(grep -oE "Line coverage: [0-9.]+%" ./coverage/report/Summary.txt | grep -oE "[0-9.]+")
+          echo "Line coverage: ${line_coverage}%"
+          awk -v cov="$line_coverage" -v threshold="35" 'BEGIN { exit !(cov >= threshold) }' \
+            || { echo "Line coverage ${line_coverage}% is below the ${35}% threshold."; exit 1; }
 
   build-and-push:
     name: build, scan, sign (${{ matrix.service }})

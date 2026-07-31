@@ -1,0 +1,13 @@
+root = true
+
+[*.cs]
+# Milestone 59 guardrail calibration: Microsoft.VisualStudio.Threading.Analyzers
+# (Directory.Build.props) is enabled globally for its concurrency-correctness
+# rules (VSTHRD103 sync-over-async blocking, VSTHRD002/VSTHRD110 deadlock-prone
+# patterns, VSTHRD100 async void, etc) - those stay build errors via the
+# project-wide TreatWarningsAsErrors. VSTHRD200 (method names should end in
+# "Async") is purely a naming convention, not a correctness signal, and this
+# codebase has many pre-existing local helper functions that don't follow it -
+# downgraded to a suggestion so the guardrail keeps catching real risk instead
+# of blocking on a naming nit across dozens of existing call sites.
+dotnet_diagnostic.VSTHRD200.severity = suggestion

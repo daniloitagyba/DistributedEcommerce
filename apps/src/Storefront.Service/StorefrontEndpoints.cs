@@ -3,6 +3,12 @@ using Microsoft.Extensions.Options;
 
 namespace Storefront.Service;
 
+internal static partial class StorefrontLog
+{
+    [LoggerMessage(EventId = 7001, Level = LogLevel.Warning, Message = "{Dependency} unavailable for sku {Sku}, degrading response")]
+    public static partial void DependencyUnavailable(ILogger logger, string dependency, string sku, Exception exception);
+}
+
 /// <summary>
 /// Milestone 54: this lab's first genuine BFF fan-out - every other
 /// Storefront.Service endpoint (ProxyEndpoints) is a 1:1 reverse proxy.
@@ -23,8 +29,10 @@ public static class StorefrontEndpoints
         string sku,
         IHttpClientFactory httpClientFactory,
         IOptions<ProductSummaryOptions> options,
+        ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
+        var logger = loggerFactory.CreateLogger("Storefront.Service.StorefrontEndpoints");
         var catalogClient = httpClientFactory.CreateClient("catalog");
         var inventoryClient = httpClientFactory.CreateClient("inventory");
         var hedgeDelayMs = options.Value.HedgeDelayMilliseconds;
@@ -34,16 +42,56 @@ public static class StorefrontEndpoints
             ? GetHedgedJsonOrNullAsync(inventoryClient, $"/inventory/{Uri.EscapeDataString(sku)}", hedgeDelayMs, cancellationToken)
             : GetJsonOrNullAsync(inventoryClient, $"/inventory/{Uri.EscapeDataString(sku)}", cancellationToken);
 
-        await Task.WhenAll(catalogTask, inventoryTask);
+        // Milestone 64: awaited separately, not via Task.WhenAll - Inventory
+        // is an enrichment of an otherwise-complete Catalog response, not a
+        // second required source. Task.WhenAll propagates whichever task
+        // faults first and fails the whole request even when Catalog (the
+        // side that actually determines whether this SKU exists) answered
+        // fine - the exact opposite of what a BFF fanning out to several
+        // backends should do on a partial failure. Both legs are still
+        // always awaited to completion here, regardless of which one
+        // faults first, so neither is ever left unobserved.
+        object? product;
+        bool catalogUnavailable;
+        try
+        {
+            product = await catalogTask;
+            catalogUnavailable = false;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
+        {
+            StorefrontLog.DependencyUnavailable(logger, "catalog", sku, exception);
+            product = null;
+            catalogUnavailable = true;
+        }
 
-        var product = await catalogTask;
+        object? inventory;
+        bool inventoryUnavailable;
+        try
+        {
+            inventory = await inventoryTask;
+            inventoryUnavailable = false;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
+        {
+            StorefrontLog.DependencyUnavailable(logger, "inventory", sku, exception);
+            inventory = null;
+            inventoryUnavailable = true;
+        }
+
+        if (catalogUnavailable)
+        {
+            return Results.Problem(
+                detail: "The catalog service is currently unavailable.",
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+
         if (product is null)
         {
             return Results.NotFound(new { message = $"No product with sku '{sku}' was found in the catalog." });
         }
 
-        var inventory = await inventoryTask;
-        return Results.Ok(new { product, inventory });
+        return Results.Ok(new { product, inventory, degraded = inventoryUnavailable });
     }
 
     /// <summary>

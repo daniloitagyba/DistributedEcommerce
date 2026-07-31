@@ -27,6 +27,21 @@ spec:
     spec:
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30
+      # Milestone 65: nothing previously stopped the scheduler from placing
+      # every replica on the same node - the PodDisruptionBudget below
+      # protects against a voluntary drain, not against a single node
+      # failure taking out every replica at once. ScheduleAnyway (not
+      # DoNotSchedule) so this never blocks scheduling outright - on this
+      # lab's single-node K3s cluster there is only one topology domain to
+      # spread across, so it's a no-op today and a real guardrail the
+      # moment a second node joins.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: cart-service
       securityContext:
         runAsNonRoot: true
         seccompProfile:

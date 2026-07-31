@@ -82,6 +82,17 @@ builder.Services.AddOptions<CatalogClientOptions>()
 var connectionString = builder.Configuration.GetConnectionString("Orders")
     ?? throw new InvalidOperationException("Connection string 'Orders' is required.");
 builder.Services.AddSingleton(NpgsqlDataSource.Create(connectionString));
+builder.Services.Configure<RetentionOptions>(options =>
+{
+    options.ConnectionString = connectionString;
+    options.Targets =
+    [
+        new RetentionTarget("outbox_messages", "processed_at"),
+        new RetentionTarget("inbox_messages", "processed_at")
+    ];
+    options.RetentionDays = builder.Configuration.GetValue("Retention:RetentionDays", 7);
+});
+builder.Services.AddHostedService<RetentionSweeper>();
 builder.Services.AddOrdersResilience();
 builder.Services.AddOrdersSchemaRegistry(builder.Configuration);
 builder.Services.AddSingleton<InboxStore>();

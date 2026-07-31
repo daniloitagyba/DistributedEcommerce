@@ -61,6 +61,18 @@ builder.Services.AddDbContext<PaymentsDbContext>((serviceProvider, options) =>
     options.UseNpgsql(connectionString)
         .AddNPlusOneDetection(serviceProvider.GetRequiredService<ILoggerFactory>()));
 
+builder.Services.Configure<RetentionOptions>(options =>
+{
+    options.ConnectionString = connectionString;
+    options.Targets =
+    [
+        new RetentionTarget("outbox_messages", "processed_at"),
+        new RetentionTarget("inbox_messages", "processed_at")
+    ];
+    options.RetentionDays = builder.Configuration.GetValue("Retention:RetentionDays", 7);
+});
+builder.Services.AddHostedService<RetentionSweeper>();
+
 builder.Services.AddSingleton<IProducer<string, string>>(serviceProvider =>
 {
     var options = serviceProvider.GetRequiredService<IOptions<PaymentsKafkaOptions>>().Value;

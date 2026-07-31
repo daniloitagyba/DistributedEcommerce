@@ -75,6 +75,7 @@ public sealed class KafkaDeadLetterPublisher(
         CopyHeader(consumeResult.Message.Headers, headers, MessagingHeaders.CorrelationId);
         CopyHeader(consumeResult.Message.Headers, headers, MessagingHeaders.TraceParent);
         CopyHeader(consumeResult.Message.Headers, headers, MessagingHeaders.TraceState);
+        CopyHeader(consumeResult.Message.Headers, headers, MessagingHeaders.RedriveCount);
         AddHeader(headers, MessagingHeaders.OriginalTopic, consumeResult.Topic);
         AddHeader(headers, MessagingHeaders.OriginalPartition, consumeResult.Partition.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
         AddHeader(headers, MessagingHeaders.OriginalOffset, consumeResult.Offset.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));

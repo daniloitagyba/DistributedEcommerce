@@ -3,6 +3,7 @@
     <Project Path="src/BuildingBlocks/BuildingBlocks.csproj" />
     <Project Path="src/Cart.Service/Cart.Service.csproj" />
     <Project Path="src/Catalog.Service/Catalog.Service.csproj" />
+    <Project Path="src/DlqRedriveTool/DlqRedriveTool.csproj" />
     <Project Path="src/Inventory.Service/Inventory.Service.csproj" />
     <Project Path="src/Orders.Api/Orders.Api.csproj" />
     <Project Path="src/Orders.Application/Orders.Application.csproj" />

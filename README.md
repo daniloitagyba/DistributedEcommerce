@@ -2,6 +2,8 @@
 
 [![ci](https://github.com/daniloitagyba/DistributedEcommerce/actions/workflows/ci.yml/badge.svg)](https://github.com/daniloitagyba/DistributedEcommerce/actions/workflows/ci.yml)
 
+![Architecture overview](docs/images/architecture-dracula.png)
+
 A practical distributed-systems lab, built incrementally milestone by milestone into a multi-service e-commerce system: polyglot persistence, event-driven sagas, and a full GitOps deployment. Every milestone's report under [`docs/`](docs/) records what actually happened validating it against a live deployment — including what broke — not just the intended design.
 
 Seven .NET services (`Orders.Api`/`Orders.Worker`, `Payments.Service`, `Catalog.Service`, `Inventory.Service`, `Cart.Service`, `Storefront.Service`) coordinate through Kafka and HTTP, backed by PostgreSQL, MongoDB, and Redis, each chosen for what it's actually good at rather than defaulting to one store for everything.

@@ -8,6 +8,15 @@ public sealed class ProductRepository
 {
     private readonly IMongoCollection<Product> _products;
 
+    static ProductRepository()
+    {
+        // Must run before the driver serializes/deserializes a Product for
+        // the first time - a static constructor guarantees that regardless
+        // of whether the caller is Program.cs or a test fixture that never
+        // runs application startup.
+        MongoClassMaps.Register();
+    }
+
     public ProductRepository(IMongoDatabase database)
     {
         _products = database.GetCollection<Product>("products");

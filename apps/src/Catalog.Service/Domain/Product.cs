@@ -1,6 +1,3 @@
-using MongoDB.Bson;
-using MongoDB.Bson.Serialization.Attributes;
-
 namespace Catalog.Service.Domain;
 
 /// <summary>
@@ -13,11 +10,15 @@ namespace Catalog.Service.Domain;
 /// Attributes stays a flat string/string map rather than nested BSON to
 /// keep the HTTP API surface simple - real catalogs often go further
 /// (typed attribute schemas per category), deliberately not attempted here.
+///
+/// Milestone 61: the Id-as-ObjectId wire representation used to be declared
+/// here via [BsonId]/[BsonRepresentation] - moved to a BsonClassMap in
+/// Catalog.Service.Data (see MongoClassMaps.Register) so this type carries
+/// no MongoDB.Bson dependency at all, matching the same domain-purity rule
+/// Orders.Domain has enforced since Milestone 60.
 /// </summary>
 public sealed class Product
 {
-    [BsonId]
-    [BsonRepresentation(BsonType.ObjectId)]
     public string Id { get; set; } = string.Empty;
 
     public string Name { get; set; } = string.Empty;
